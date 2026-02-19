@@ -23,6 +23,58 @@ from lazarus.pypi.client import PyPIClient
 
 console = Console()
 
+# Packages with heavy C/Cython extensions that hang during build.
+# These can be analyzed but not built locally — they need platform-specific
+# build agents or pre-built wheels.
+SKIP_BUILD_PACKAGES = frozenset({
+    "grpcio",
+    "cython",
+    "rapidfuzz",
+    "pynacl",
+    "bcrypt",
+    "lxml",
+    "pillow",
+    "numpy",
+    "scipy",
+    "pandas",
+    "pyarrow",
+    "cryptography",
+    "cffi",
+    "greenlet",
+    "psutil",
+    "multidict",
+    "yarl",
+    "frozenlist",
+    "aiohttp",
+    "rpds-py",
+    "propcache",
+    "msgpack",
+    "pyyaml",
+    "coverage",
+    "scikit-learn",
+    "regex",
+})
+
+
+def _has_c_extensions(source_dir: Path) -> bool:
+    """Heuristic: check if a package has C/Cython extensions."""
+    for pattern in ("*.c", "*.cpp", "*.pyx", "*.pxd"):
+        # Check top two levels — enough to detect extension modules
+        if any(source_dir.glob(pattern)) or any(source_dir.glob(f"*/{pattern}")):
+            return True
+
+    # Check setup.py/setup.cfg for ext_modules
+    setup_py = source_dir / "setup.py"
+    if setup_py.exists():
+        try:
+            text = setup_py.read_text(errors="ignore")
+            if "ext_modules" in text or "Extension(" in text:
+                return True
+        except OSError:
+            pass
+
+    return False
+
 
 @dataclass
 class ProcessResult:
@@ -133,21 +185,37 @@ class Pipeline:
             else:
                 result.fix_method = FixMethod.AUTO
 
-            # 6. Rewrite version
-            python_target = job.python_target.replace(".", "")
-            new_ver = lazarus_version(job.version, python_target)
-            rewrite_version_in_source(source_dir, new_ver)
+            # 6. Decide whether to build
+            skip_build = (
+                job.package_name.lower() in SKIP_BUILD_PACKAGES
+                or _has_c_extensions(source_dir)
+            )
 
-            # 7. Build
-            console.print(f"  [dim]Building distributions...[/]")
-            output_dir = work_dir / "dist"
-            try:
-                dists = self.builder.build_all(source_dir, output_dir)
-                result.dists_built = [p.name for p in dists]
+            if result.issues_fixed == 0:
+                # Nothing was actually changed — no need to build
+                console.print(f"  [dim]No fixes applied — skipping build[/]")
                 result.success = True
-            except Exception as e:
-                console.print(f"  [red]Build failed: {e}[/]")
-                result.error = str(e)
+            elif skip_build:
+                console.print(
+                    f"  [yellow]C-extension package — skipping build "
+                    f"(needs platform build agent)[/]"
+                )
+                result.success = True
+            else:
+                # Rewrite version and build
+                python_target = job.python_target.replace(".", "")
+                new_ver = lazarus_version(job.version, python_target)
+                rewrite_version_in_source(source_dir, new_ver)
+
+                console.print(f"  [dim]Building distributions...[/]")
+                output_dir = work_dir / "dist"
+                try:
+                    dists = self.builder.build_all(source_dir, output_dir)
+                    result.dists_built = [p.name for p in dists]
+                    result.success = True
+                except Exception as e:
+                    console.print(f"  [red]Build failed: {e}[/]")
+                    result.error = str(e)
 
             # Cleanup backup
             self.patcher.cleanup_backup(backup_path)
