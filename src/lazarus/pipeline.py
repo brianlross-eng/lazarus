@@ -86,6 +86,8 @@ class ProcessResult:
     issues_fixed: int = 0
     error: str | None = None
     dists_built: list[str] = field(default_factory=list)
+    needs_review: bool = False
+    review_reason: str | None = None
 
 
 @dataclass
@@ -179,8 +181,21 @@ class Pipeline:
                     console.print(f"  [red]Claude fix failed: {e}[/]")
                     result.fix_method = FixMethod.AUTO if auto_fixable else FixMethod.NONE
             elif needs_ai:
-                # No API key — mark for review
-                console.print(f"  [yellow]{len(needs_ai)} issue(s) need AI/manual fix[/]")
+                # No API key — flag for later review
+                issue_summary = "; ".join(
+                    f"{i.issue_type} in {Path(i.file_path).name}:{i.line}"
+                    for i in needs_ai[:10]  # cap at 10 to keep reason readable
+                )
+                if len(needs_ai) > 10:
+                    issue_summary += f" ... and {len(needs_ai) - 10} more"
+                result.needs_review = True
+                result.review_reason = (
+                    f"{len(needs_ai)} unfixed issue(s): {issue_summary}"
+                )
+                console.print(
+                    f"  [yellow]{len(needs_ai)} issue(s) need AI/manual fix "
+                    f"— flagging for review[/]"
+                )
                 result.fix_method = FixMethod.AUTO if auto_fixable else FixMethod.NONE
             else:
                 result.fix_method = FixMethod.AUTO
@@ -191,9 +206,13 @@ class Pipeline:
                 or _has_c_extensions(source_dir)
             )
 
-            if result.issues_fixed == 0:
-                # Nothing was actually changed — no need to build
+            if result.issues_fixed == 0 and not result.needs_review:
+                # Nothing was actually changed and no review needed — skip build
                 console.print(f"  [dim]No fixes applied — skipping build[/]")
+                result.success = True
+            elif result.needs_review:
+                # Don't bother building — it's going to review anyway
+                console.print(f"  [dim]Skipping build — package flagged for review[/]")
                 result.success = True
             elif skip_build:
                 console.print(
@@ -265,7 +284,16 @@ class Pipeline:
                 batch.results.append(result)
                 batch.processed += 1
 
-                if result.success:
+                if result.needs_review:
+                    self.queue.mark_review(
+                        job.id, result.review_reason or "Needs AI/manual fix"
+                    )
+                    batch.succeeded += 1
+                    console.print(
+                        f"  [magenta]Flagged for review ({result.issues_found} issues, "
+                        f"{result.issues_fixed} auto-fixed)[/]"
+                    )
+                elif result.success:
                     self.queue.complete(job.id, result.fix_method)
                     batch.succeeded += 1
                     console.print(f"  [green]Success ({result.fix_method})[/]")
