@@ -1,0 +1,41 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+src/*.egg-info/
+*.egg
+dist/
+build/
+*.whl
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+.mypy_cache/
+
+# Lazarus runtime data
+*.db
+queue.db
+
+# OS
+Thumbs.db
+.DS_Store
+
+# Project planning / brainstorming
+Lazarus_Project.md
+
+# Claude Code
+.claude/
