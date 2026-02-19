@@ -74,6 +74,7 @@ class AutoFixer:
             "removed_shutil_onerror": self._fix_shutil_onerror,
             "removed_pty_function": self._fix_pty_functions,
             "removed_importlib_abc": self._fix_importlib_abc,
+            "invalid_escape_sequence": self._fix_invalid_escape_sequences,
         }.get(issue.issue_type)
 
         if handler is None:
@@ -157,3 +158,161 @@ class AutoFixer:
                 source,
             )
         return source
+
+    def _fix_invalid_escape_sequences(self, source: str, issue: CompatIssue) -> str:
+        r"""Fix invalid escape sequences by doubling unrecognized backslash escapes.
+
+        Strategy: find backslash sequences that aren't valid Python escapes
+        and double the backslash. This is safer than converting to raw strings
+        because raw strings can't end with an odd number of backslashes and
+        may change the meaning of valid escapes within the same string.
+
+        Valid escapes: \\, \', \", \a, \b, \f, \n, \r, \t, \v,
+                       \0, \N{}, \uXXXX, \UXXXXXXXX, \xHH, \ooo, \newline
+        """
+        # Characters valid after a backslash in source code (literal chars, not
+        # the escape values). E.g., 'n' for \n, 't' for \t.
+        valid_escape_chars = set(
+            "\\'\""           # \\, \', \"
+            "abfnrtv"         # \a, \b, \f, \n, \r, \t, \v
+            "0123456789"      # \0, \ooo (octal)
+            "NuUxo"           # \N{name}, \uXXXX, \UXXXXXXXX, \xHH, \ooo
+            "\n"              # line continuation (actual newline)
+        )
+        lines = source.split("\n")
+        changed = False
+
+        for line_idx, line in enumerate(lines):
+            new_line = self._fix_escapes_in_line(line, valid_escape_chars)
+            if new_line != line:
+                lines[line_idx] = new_line
+                changed = True
+
+        if changed:
+            return "\n".join(lines)
+        return source
+
+    @staticmethod
+    def _fix_escapes_in_line(line: str, valid_escape_chars: set[str]) -> str:
+        r"""Fix invalid escapes in a single line of source code."""
+        result: list[str] = []
+        i = 0
+        length = len(line)
+
+        while i < length:
+            ch = line[i]
+
+            # Skip comments
+            if ch == "#":
+                result.append(line[i:])
+                break
+
+            # Check for string start
+            if ch in ('"', "'"):
+                # Check for raw string prefix
+                prefix_start = i - 1
+                while prefix_start >= 0 and line[prefix_start] in "bBuUfFrR":
+                    prefix_start -= 1
+                prefix = line[prefix_start + 1:i].lower()
+
+                if "r" in prefix:
+                    # Raw string — no escape processing needed, skip to end
+                    end = _find_string_end(line, i)
+                    result.append(line[i:end])
+                    i = end
+                    continue
+
+                quote_char = ch
+                # Check for triple quote
+                if (i + 2 < length
+                        and line[i + 1] == quote_char
+                        and line[i + 2] == quote_char):
+                    end_quote = quote_char * 3
+                    result.append(end_quote)
+                    j = i + 3
+                    while j < length:
+                        if line[j] == "\\" and j + 1 < length:
+                            next_ch = line[j + 1]
+                            if next_ch not in valid_escape_chars:
+                                # Invalid escape — double the backslash
+                                result.append("\\\\")
+                                result.append(next_ch)
+                                j += 2
+                                continue
+                            else:
+                                result.append(line[j])
+                                result.append(line[j + 1])
+                                j += 2
+                                continue
+                        if line[j:j + 3] == end_quote:
+                            result.append(end_quote)
+                            j += 3
+                            break
+                        result.append(line[j])
+                        j += 1
+                    else:
+                        # Unterminated triple-quote (continues on next line)
+                        pass
+                    i = j
+                else:
+                    # Single-quoted string
+                    result.append(quote_char)
+                    j = i + 1
+                    while j < length:
+                        if line[j] == "\\" and j + 1 < length:
+                            next_ch = line[j + 1]
+                            if next_ch not in valid_escape_chars:
+                                # Invalid escape — double the backslash
+                                result.append("\\\\")
+                                result.append(next_ch)
+                                j += 2
+                                continue
+                            else:
+                                result.append(line[j])
+                                result.append(line[j + 1])
+                                j += 2
+                                continue
+                        if line[j] == quote_char:
+                            result.append(quote_char)
+                            j += 1
+                            break
+                        result.append(line[j])
+                        j += 1
+                    i = j
+            else:
+                result.append(ch)
+                i += 1
+
+        return "".join(result)
+
+
+def _find_string_end(line: str, start: int) -> int:
+    """Find the end of a string literal starting at `start`."""
+    quote_char = line[start]
+    length = len(line)
+
+    # Triple quote?
+    if (start + 2 < length
+            and line[start + 1] == quote_char
+            and line[start + 2] == quote_char):
+        end_quote = quote_char * 3
+        j = start + 3
+        while j < length:
+            if line[j] == "\\" and j + 1 < length:
+                j += 2
+                continue
+            if line[j:j + 3] == end_quote:
+                return j + 3
+            j += 1
+        return length
+
+    # Single quote
+    j = start + 1
+    while j < length:
+        if line[j] == "\\" and j + 1 < length:
+            j += 2
+            continue
+        if line[j] == quote_char:
+            return j + 1
+        j += 1
+    return length

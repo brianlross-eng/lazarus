@@ -143,6 +143,89 @@ class TestPtyRemovals:
         assert issues[0].auto_fixable is True
 
 
+class TestPkgResources:
+    def test_detects_import(self, analyzer: StaticAnalyzer, tmp_py) -> None:
+        f = tmp_py("""\
+            import pkg_resources
+            version = pkg_resources.get_distribution("foo").version
+        """)
+        issues = analyzer.analyze_file(f)
+        assert len(issues) == 1
+        assert issues[0].issue_type == "deprecated_pkg_resources"
+        assert issues[0].auto_fixable is False
+
+    def test_detects_from_import(self, analyzer: StaticAnalyzer, tmp_py) -> None:
+        f = tmp_py("""\
+            from pkg_resources import get_distribution
+        """)
+        issues = analyzer.analyze_file(f)
+        assert len(issues) == 1
+        assert issues[0].issue_type == "deprecated_pkg_resources"
+
+    def test_detects_submodule_import(self, analyzer: StaticAnalyzer, tmp_py) -> None:
+        f = tmp_py("""\
+            import pkg_resources.extern
+        """)
+        issues = analyzer.analyze_file(f)
+        assert len(issues) == 1
+
+    def test_ignores_unrelated_pkg(self, analyzer: StaticAnalyzer, tmp_py) -> None:
+        f = tmp_py("""\
+            import pkg_other
+        """)
+        issues = analyzer.analyze_file(f)
+        assert len(issues) == 0
+
+
+class TestInvalidEscapeSequences:
+    def test_detects_invalid_escape(self, analyzer: StaticAnalyzer, tmp_py) -> None:
+        # Write raw content to avoid Python processing the escapes
+        p = tmp_py("x = 1")  # Create the file first
+        p.write_text('pattern = "hello\\pworld"\n')
+        issues = analyzer.analyze_file(p)
+        escape_issues = [i for i in issues if i.issue_type == "invalid_escape_sequence"]
+        assert len(escape_issues) == 1
+        assert escape_issues[0].auto_fixable is True
+        assert escape_issues[0].severity == "warning"
+
+    def test_ignores_valid_escapes(self, analyzer: StaticAnalyzer, tmp_py) -> None:
+        p = tmp_py("x = 1")
+        # Use raw string so \\n and \\t are written literally as \n and \t in the file
+        p.write_text(r'msg = "hello\nworld\t!"' + "\n")
+        issues = analyzer.analyze_file(p)
+        escape_issues = [i for i in issues if i.issue_type == "invalid_escape_sequence"]
+        assert len(escape_issues) == 0
+
+    def test_ignores_raw_strings(self, analyzer: StaticAnalyzer, tmp_py) -> None:
+        p = tmp_py("x = 1")
+        p.write_text('pattern = r"hello\\pworld"\n')
+        issues = analyzer.analyze_file(p)
+        escape_issues = [i for i in issues if i.issue_type == "invalid_escape_sequence"]
+        assert len(escape_issues) == 0
+
+    def test_detects_in_single_quotes(self, analyzer: StaticAnalyzer, tmp_py) -> None:
+        p = tmp_py("x = 1")
+        p.write_text("pattern = 'hello\\dworld'\n")
+        issues = analyzer.analyze_file(p)
+        escape_issues = [i for i in issues if i.issue_type == "invalid_escape_sequence"]
+        assert len(escape_issues) == 1
+
+    def test_ignores_comments(self, analyzer: StaticAnalyzer, tmp_py) -> None:
+        p = tmp_py("x = 1")
+        p.write_text('# This \\p is in a comment\nx = 1\n')
+        issues = analyzer.analyze_file(p)
+        escape_issues = [i for i in issues if i.issue_type == "invalid_escape_sequence"]
+        assert len(escape_issues) == 0
+
+    def test_detects_common_regex_pattern(self, analyzer: StaticAnalyzer, tmp_py) -> None:
+        """The schema package example: \\/ in a regular string."""
+        p = tmp_py("x = 1")
+        p.write_text('pattern = "^([a-zA-Z_][a-zA-Z0-9_]*)\\/"\n')
+        issues = analyzer.analyze_file(p)
+        escape_issues = [i for i in issues if i.issue_type == "invalid_escape_sequence"]
+        assert len(escape_issues) == 1
+
+
 class TestAnalyzeTree:
     def test_scans_directory(self, analyzer: StaticAnalyzer, tmp_path: Path) -> None:
         (tmp_path / "a.py").write_text("import ast\nx = ast.Num\n")

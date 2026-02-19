@@ -114,3 +114,60 @@ class TestAutoFixImportlibAbc:
         assert result.issues_fixed == 1
         content = f.read_text()
         assert "importlib.resources.abc" in content
+
+
+class TestAutoFixInvalidEscapeSequences:
+    def test_fixes_invalid_escape_by_doubling_backslash(self, tmp_path: Path) -> None:
+        f = tmp_path / "module.py"
+        f.write_text('pattern = "hello\\pworld"\n')
+        analyzer = StaticAnalyzer()
+        issues = analyzer.analyze_file(f)
+        auto_issues = [i for i in issues if i.auto_fixable]
+        assert len(auto_issues) >= 1
+
+        fixer = AutoFixer()
+        result = fixer.apply_all(tmp_path, auto_issues)
+        assert result.issues_fixed >= 1
+
+        content = f.read_text()
+        assert "\\\\p" in content  # Backslash was doubled
+        assert "\\p" not in content.replace("\\\\p", "")  # No bare \p left
+
+    def test_preserves_valid_escapes(self, tmp_path: Path) -> None:
+        f = tmp_path / "module.py"
+        # Mix of valid (\n) and invalid (\p) escapes
+        f.write_text('msg = "line1\\nline2\\pextra"\n')
+        analyzer = StaticAnalyzer()
+        issues = analyzer.analyze_file(f)
+        auto_issues = [i for i in issues if i.auto_fixable]
+
+        fixer = AutoFixer()
+        fixer.apply_all(tmp_path, auto_issues)
+
+        content = f.read_text()
+        assert "\\n" in content  # Valid escape preserved
+        assert "\\\\p" in content  # Invalid escape doubled
+
+    def test_leaves_raw_strings_alone(self, tmp_path: Path) -> None:
+        f = tmp_path / "module.py"
+        f.write_text('pattern = r"hello\\pworld"\n')
+        analyzer = StaticAnalyzer()
+        issues = analyzer.analyze_file(f)
+        auto_issues = [i for i in issues if i.issue_type == "invalid_escape_sequence"]
+        assert len(auto_issues) == 0  # Raw strings shouldn't be flagged
+
+    def test_fixes_slash_in_regex(self, tmp_path: Path) -> None:
+        """The schema package pattern: \\/ in a regular string."""
+        f = tmp_path / "module.py"
+        f.write_text('pattern = "^([a-zA-Z_][a-zA-Z0-9_]*)\\/"\n')
+        analyzer = StaticAnalyzer()
+        issues = analyzer.analyze_file(f)
+        auto_issues = [i for i in issues if i.auto_fixable]
+
+        fixer = AutoFixer()
+        result = fixer.apply_all(tmp_path, auto_issues)
+        assert result.issues_fixed >= 1
+
+        content = f.read_text()
+        # The \/ should become \\/ (doubled backslash)
+        assert "\\\\/" in content

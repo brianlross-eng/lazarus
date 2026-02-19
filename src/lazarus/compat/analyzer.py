@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import ast
+import re
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -54,6 +55,9 @@ class StaticAnalyzer:
         issues.extend(self._check_shutil_onerror(tree, path_str))
         issues.extend(self._check_pathlib_extra_args(tree, path_str))
         issues.extend(self._check_pty_removals(tree, path_str))
+        issues.extend(self._check_pkg_resources(tree, path_str))
+        # Non-AST checks (operate on raw source text)
+        issues.extend(self._check_invalid_escape_sequences(source, path_str))
         return issues
 
     def analyze_tree(self, source_dir: Path) -> list[CompatIssue]:
@@ -313,3 +317,220 @@ class StaticAnalyzer:
                     ))
 
         return issues
+
+    def _check_pkg_resources(
+        self, tree: ast.AST, path: str
+    ) -> list[CompatIssue]:
+        """Check for pkg_resources usage (removed from setuptools on 3.14).
+
+        pkg_resources has been deprecated for years in favor of
+        importlib.metadata and importlib.resources. In Python 3.14,
+        setuptools no longer bundles it by default, causing
+        ModuleNotFoundError at build/import time.
+        """
+        issues: list[CompatIssue] = []
+
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Import):
+                for alias in node.names:
+                    if alias.name == "pkg_resources" or alias.name.startswith("pkg_resources."):
+                        issues.append(CompatIssue(
+                            file_path=path,
+                            line_number=node.lineno,
+                            issue_type="deprecated_pkg_resources",
+                            description=(
+                                "pkg_resources is deprecated and removed from "
+                                "setuptools on Python 3.14. Use importlib.metadata "
+                                "or importlib.resources instead."
+                            ),
+                            severity="error",
+                            auto_fixable=False,
+                        ))
+            if isinstance(node, ast.ImportFrom) and node.module:
+                if node.module == "pkg_resources" or node.module.startswith("pkg_resources."):
+                    issues.append(CompatIssue(
+                        file_path=path,
+                        line_number=node.lineno,
+                        issue_type="deprecated_pkg_resources",
+                        description=(
+                            "pkg_resources is deprecated and removed from "
+                            "setuptools on Python 3.14. Use importlib.metadata "
+                            "or importlib.resources instead."
+                        ),
+                        severity="error",
+                        auto_fixable=False,
+                    ))
+
+        return issues
+
+    def _check_invalid_escape_sequences(
+        self, source: str, path: str
+    ) -> list[CompatIssue]:
+        r"""Check for invalid escape sequences in string literals.
+
+        Python 3.14 emits SyntaxWarning for unrecognized escape sequences
+        like \p, \/, \d (outside raw strings). These will become SyntaxError
+        in a future Python version.
+
+        Valid escapes: \\, \', \", \a, \b, \f, \n, \r, \t, \v,
+                       \0, \N{}, \uXXXX, \UXXXXXXXX, \xHH, \ooo, \newline
+        """
+        issues: list[CompatIssue] = []
+        # Characters that are valid after a backslash in Python string literals.
+        # These are the literal characters as they appear in source code (not the
+        # escape values themselves). E.g., 'n' for \n, 't' for \t, etc.
+        valid_after_backslash = set(
+            "\\'\""           # \\, \', \"
+            "abfnrtv"         # \a, \b, \f, \n, \r, \t, \v
+            "0123456789"      # \0, \ooo (octal), \1-\7
+            "NuUxo"           # \N{name}, \uXXXX, \UXXXXXXXX, \xHH, \ooo
+            "\n"              # line continuation (actual newline)
+        )
+
+        # Match string literals (avoiding raw strings which don't have this issue)
+        # We use a simple regex to find quoted strings on each line
+        for lineno, line in enumerate(source.splitlines(), start=1):
+            stripped = line.lstrip()
+            # Skip comments
+            if stripped.startswith("#"):
+                continue
+            # Skip lines with raw strings prefix — crude but fast
+            # We need a more precise check: find string tokens with backslashes
+            # that aren't in raw strings
+            self._scan_line_for_bad_escapes(
+                line, lineno, path, valid_after_backslash, issues
+            )
+
+        return issues
+
+    @staticmethod
+    def _scan_line_for_bad_escapes(
+        line: str,
+        lineno: int,
+        path: str,
+        valid_after_backslash: set[str],
+        issues: list[CompatIssue],
+    ) -> None:
+        r"""Scan a single line for invalid escape sequences in string literals.
+
+        Uses a simple state machine to track whether we're inside a string
+        and whether the string is raw.
+        """
+        # Pattern to find string openings (not raw strings)
+        # This is a simplified scanner — handles most common cases
+        # We look for non-raw string literals containing backslashes
+        i = 0
+        length = len(line)
+        while i < length:
+            ch = line[i]
+
+            # Skip comments
+            if ch == "#":
+                return
+
+            # Check for string start
+            if ch in ('"', "'"):
+                # Look back to see if there's an 'r' or 'R' prefix
+                prefix_start = i - 1
+                while prefix_start >= 0 and line[prefix_start] in "bBuUfFrR":
+                    prefix_start -= 1
+                prefix = line[prefix_start + 1:i].lower()
+                if "r" in prefix:
+                    # Raw string — skip to end
+                    i = _skip_string(line, i)
+                    continue
+
+                # Regular string — scan for bad escapes
+                quote_char = ch
+                # Check for triple quote
+                if i + 2 < length and line[i + 1] == quote_char and line[i + 2] == quote_char:
+                    # Triple-quoted string on same line — scan to closing triple
+                    end_quote = quote_char * 3
+                    j = i + 3
+                    found_bad = False
+                    while j < length:
+                        if line[j] == "\\" and j + 1 < length:
+                            next_ch = line[j + 1]
+                            if next_ch not in valid_after_backslash:
+                                found_bad = True
+                                break
+                            j += 2
+                            continue
+                        if line[j:j + 3] == end_quote:
+                            break
+                        j += 1
+                    if found_bad:
+                        issues.append(CompatIssue(
+                            file_path=path,
+                            line_number=lineno,
+                            issue_type="invalid_escape_sequence",
+                            description=(
+                                f"Invalid escape sequence '\\{next_ch}'. "
+                                f"Use a raw string (r'...') or escape the backslash (\\\\{next_ch}). "
+                                f"This is a SyntaxWarning in 3.14 and will become an error."
+                            ),
+                            severity="warning",
+                            auto_fixable=True,
+                        ))
+                    i = j + 3 if j + 3 <= length else length
+                else:
+                    # Single-quoted string
+                    j = i + 1
+                    found_bad = False
+                    while j < length:
+                        if line[j] == "\\" and j + 1 < length:
+                            next_ch = line[j + 1]
+                            if next_ch not in valid_after_backslash:
+                                found_bad = True
+                                break
+                            j += 2
+                            continue
+                        if line[j] == quote_char:
+                            break
+                        j += 1
+                    if found_bad:
+                        issues.append(CompatIssue(
+                            file_path=path,
+                            line_number=lineno,
+                            issue_type="invalid_escape_sequence",
+                            description=(
+                                f"Invalid escape sequence '\\{next_ch}'. "
+                                f"Use a raw string (r'...') or escape the backslash (\\\\{next_ch}). "
+                                f"This is a SyntaxWarning in 3.14 and will become an error."
+                            ),
+                            severity="warning",
+                            auto_fixable=True,
+                        ))
+                    i = j + 1
+            else:
+                i += 1
+
+
+def _skip_string(line: str, start: int) -> int:
+    """Skip past a string literal starting at `start` (the opening quote)."""
+    quote_char = line[start]
+    length = len(line)
+
+    # Triple quote?
+    if start + 2 < length and line[start + 1] == quote_char and line[start + 2] == quote_char:
+        end_quote = quote_char * 3
+        j = start + 3
+        while j < length:
+            if line[j] == "\\" and j + 1 < length:
+                j += 2
+                continue
+            if line[j:j + 3] == end_quote:
+                return j + 3
+            j += 1
+        return length
+
+    # Single quote
+    j = start + 1
+    while j < length:
+        if line[j] == "\\" and j + 1 < length:
+            j += 2
+            continue
+        if line[j] == quote_char:
+            return j + 1
+        j += 1
+    return length
