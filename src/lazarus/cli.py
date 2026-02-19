@@ -116,6 +116,21 @@ ADMIN COMMANDS
 
             lazarus admin errors
 
+    lazarus admin watchdog [-i INTERVAL] [-s STALE_MINUTES] [--no-restart]
+        Start the pipeline watchdog. Runs in the foreground, monitoring the
+        job queue for stale jobs and crashed processors.
+
+        The watchdog checks every INTERVAL seconds (default: 60) for jobs
+        stuck in 'in_progress' longer than STALE_MINUTES (default: 10).
+        When found, it resets them back to pending. If the batch processor
+        has exited, it automatically restarts it.
+
+        All activity is logged to ~/.lazarus/watchdog.log.
+
+            lazarus admin watchdog
+            lazarus admin watchdog -i 30 -s 5
+            lazarus admin watchdog --no-restart
+
 ENVIRONMENT VARIABLES
     LAZARUS_HOME
         Base directory for Lazarus data (default: ~/.lazarus). Contains
@@ -144,6 +159,7 @@ FILES
     ~/.lazarus/queue.db     SQLite job queue database
     ~/.lazarus/work/        Temporary working directory for package processing
     ~/.lazarus/cache/       Downloaded source distribution cache
+    ~/.lazarus/watchdog.log Watchdog activity log
 
 VERSIONING
     Lazarus uses PEP 440 post-releases to tag fixed packages:
@@ -171,6 +187,9 @@ EXAMPLES
 
     Check processing progress:
         $ lazarus admin status
+
+    Run the watchdog to keep processing alive:
+        $ lazarus admin watchdog
 
     Review packages that need manual attention:
         $ lazarus admin reviews
@@ -497,3 +516,50 @@ def errors() -> None:
         table.add_row(error, str(count))
 
     console.print(table)
+
+
+@admin.command()
+@click.option("--interval", "-i", default=60,
+              help="Seconds between checks (default: 60)")
+@click.option("--stale-minutes", "-s", default=10,
+              help="Minutes before a job is considered stale (default: 10)")
+@click.option("--no-restart", is_flag=True,
+              help="Don't auto-restart the processor")
+@click.option("--auto-only", is_flag=True, default=True,
+              help="Only use auto-fixes when restarting (default: True)")
+def watchdog(interval: int, stale_minutes: int, no_restart: bool,
+             auto_only: bool) -> None:
+    """Start the watchdog to monitor and recover stale jobs.
+
+    The watchdog runs in the foreground, checking the queue every INTERVAL
+    seconds. If it finds jobs stuck in 'in_progress' for longer than
+    STALE_MINUTES, it resets them back to pending. If the batch processor
+    has died, it automatically restarts it.
+
+    Logs are written to ~/.lazarus/watchdog.log.
+
+    \b
+    Examples:
+        lazarus admin watchdog
+        lazarus admin watchdog -i 30 -s 5
+        lazarus admin watchdog --no-restart
+    """
+    from lazarus.watchdog import Watchdog
+
+    config = get_config()
+    dog = Watchdog(
+        config=config,
+        interval=interval,
+        stale_minutes=stale_minutes,
+        auto_restart=not no_restart,
+        auto_only=auto_only,
+    )
+
+    console.print(f"[bold]Watchdog starting[/]")
+    console.print(f"  Check interval: {interval}s")
+    console.print(f"  Stale threshold: {stale_minutes}m")
+    console.print(f"  Auto-restart: {'off' if no_restart else 'on'}")
+    console.print(f"  Log: {config.base_dir / 'watchdog.log'}")
+    console.print(f"  Press Ctrl+C to stop\n")
+
+    dog.run()
