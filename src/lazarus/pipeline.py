@@ -241,7 +241,9 @@ class Pipeline:
                 console.print(f"  [dim]Building {new_ver}...[/]")
                 output_dir = work_dir / "dist"
                 try:
-                    dists = self.builder.build_all(source_dir, output_dir)
+                    dists = self.builder.build_all(
+                        source_dir, output_dir, version=new_ver,
+                    )
                     result.dists_built = [p.name for p in dists]
                     result.success = True
                 except Exception as e:
