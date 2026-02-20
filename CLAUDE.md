@@ -98,8 +98,15 @@ Matching the auto-fixable analyzer checks above. The escape sequence fixer uses 
 - Version rewrite can accidentally affect build dependency version checks (seen with scikit-build-core)
 - The `re` import in analyzer.py is currently unused (was imported for escape sequence work but state machine approach was used instead)
 
+## Domain & Infrastructure
+- **Domain**: lazaruspy.org (Cloudflare Registrar)
+- **Email**: admin@lazaruspy.org (Cloudflare Email Routing → personal email)
+- **DNS**: Cloudflare — needs A record → Hetzner server IP
+- **Package index URL**: https://lazaruspy.org/simple/
+
 ## What's Next
 - **Hetzner server setup** — purchase, deploy devpi + nginx, configure for unattended operation
+- Point lazaruspy.org DNS A record to Hetzner server IP
 - Server deployment files needed: `deploy/devpi/docker-compose.yml`, nginx.conf, setup scripts
 - `server/config.py` and `server/deploy.py` need implementation
 - Consider seeding larger batch (5,000-10,000) to find more packages needing fixes
