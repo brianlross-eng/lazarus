@@ -3,6 +3,11 @@
 ## What This Project Is
 PyPI-compatible proxy repository that automatically resurrects Python packages broken by Python 3.14 incompatibility. Pulls packages from PyPI, detects compatibility issues (AST-based static analysis), fixes them (auto-fix or Claude AI), rebuilds, and republishes with `.post314` version suffixes.
 
+## Version
+- **Current**: 1.0.0a1 (Alpha)
+- **Versioning**: PEP 440 + SemVer — track changes in `CHANGELOG.md`
+- **Tags**: `v1.0.0a1`, etc.
+
 ## Repository
 - GitHub: https://github.com/brianlross-eng/lazarus
 - Branch: `master`
@@ -16,7 +21,7 @@ python -m pytest -v
 
 # CLI (must use python -m until pip install -e . is done)
 python -m lazarus admin status          # Queue stats
-python -m lazarus admin failures 20     # Show failed jobs
+python -m lazarus admin errors           # Show common error patterns from failed jobs
 python -m lazarus admin reviews         # Show packages needing AI/manual fix
 python -m lazarus admin process --auto-only  # Process queue (auto-fixes only)
 python -m lazarus admin watchdog        # Supervisor process
@@ -126,7 +131,7 @@ Matching the auto-fixable analyzer checks above. The escape sequence fixer uses 
 ssh -i ~/.ssh/id_ed25519 root@89.167.40.82
 ```
 
-## What's Next
+## What's Next (toward 1.0.0a2)
 - Implement `publisher/uploader.py` for pushing fixed packages to devpi
 - Implement `server/config.py` and `server/deploy.py` for reproducible deployment
 - Seed larger batch (5,000-10,000) to find more packages needing fixes
