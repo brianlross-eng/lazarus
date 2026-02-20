@@ -16,7 +16,7 @@ PyPI-compatible proxy repository that automatically resurrects Python packages b
 
 ## Key Commands
 ```bash
-# Run all tests (76 tests, should all pass)
+# Run all tests (96 tests, should all pass)
 python -m pytest -v
 
 # CLI (must use python -m until pip install -e . is done)
@@ -80,13 +80,18 @@ src/lazarus/
 Matching the auto-fixable analyzer checks above. The escape sequence fixer uses a character-by-character state machine to double invalid backslashes while preserving valid escapes and raw strings.
 
 ## Pipeline Behavior
-- Full loop: fetch → analyze → fix → build → **upload to devpi**
+- Full loop: fetch → analyze → fix → build → **upload to devpi** → installable via pip
 - `SKIP_BUILD_PACKAGES` frozenset: 26 C-extension packages that hang during build
 - `_has_c_extensions()` heuristic: detects .c/.cpp/.pyx files and ext_modules in setup.py
 - `needs_review` workflow: packages with unfixed AI issues get flagged instead of silently completed
 - Two-tier design: server runs `--auto-only` (no API key), reviews pulled locally for Claude fixing
 - Upload requires `--upload` flag or `LAZARUS_UPLOAD=1` + `LAZARUS_DEVPI_PASSWORD`
-- DevpiUploader uses native devpi auth: login → token → X-Devpi-Auth header
+- DevpiUploader uses native devpi auth: login → base64(user:token) X-Devpi-Auth header
+- **Version override strategy** (three layers):
+  1. `dynamic = ["version"]` → removed, set static version in pyproject.toml
+  2. `SETUPTOOLS_SCM_PRETEND_VERSION` env var for git-tag-based versions
+  3. PKG-INFO rewrite as universal sdist fallback
+  4. Regex rewrites for setup.py, setup.cfg, __init__.py with `__version__ = "..."`
 
 ## Batch Processing Results (Top 1,000 PyPI packages)
 - 922 already compatible (92.2%)
@@ -125,7 +130,7 @@ Matching the auto-fixable analyzer checks above. The escape sequence fixer uses 
 
 ## Server Services (systemd)
 - `devpi.service` — devpi-server on 127.0.0.1:3141 (enabled, running)
-- `lazarus-processor.service` — `admin process --auto-only` (enabled, running)
+- `lazarus-processor.service` — `admin process --auto-only --upload` (enabled, running)
 - `lazarus-watchdog.service` — `admin watchdog` (enabled, running)
 - `lazarus-seed.timer` — weekly seed of top 5,000 packages
 
@@ -134,10 +139,15 @@ Matching the auto-fixable analyzer checks above. The escape sequence fixer uses 
 ssh -i ~/.ssh/id_ed25519 root@89.167.40.82
 ```
 
+## Published Packages (on lazaruspy.org)
+- `pip-26.0.1.post314` — auto-fixed
+- `pyparsing-3.3.2.post314` — auto-fixed (flit dynamic version)
+- `zipp-3.23.0.post314` — auto-fixed (setuptools_scm dynamic version)
+- Install: `pip install --extra-index-url https://lazaruspy.org/simple/ <package>`
+
 ## What's Next (toward 1.0.0a2)
-- Enable `--upload` on server processor (set LAZARUS_DEVPI_PASSWORD + LAZARUS_UPLOAD=1)
-- Implement `server/config.py` and `server/deploy.py` for reproducible deployment
 - Seed larger batch (5,000-10,000) to find more packages needing fixes
+- Implement `server/config.py` and `server/deploy.py` for reproducible deployment
 - Add `/status/<package>` API endpoint for verified compatibility checks
 - Add skip/ignore mechanism for acknowledged-but-won't-fix issues
 - Set up monitoring/alerting for server health

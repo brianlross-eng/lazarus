@@ -11,19 +11,29 @@ Versioning follows [PEP 440](https://peps.python.org/pep-0440/) and [Semantic Ve
 
 ### Added
 - **DevpiUploader** — full devpi upload support with native auth protocol
-  (login → session token → X-Devpi-Auth header → multipart file upload)
+  (login → session token → base64(user:token) X-Devpi-Auth → multipart file upload)
 - **Upload integration in pipeline** — fixed packages now get published to devpi
   after build, completing the fetch → analyze → fix → build → **publish** loop
 - **`--upload` CLI flag** — `lazarus admin process --upload` enables publishing
 - **`LAZARUS_UPLOAD` env var** — enable uploads via environment
 - **`LAZARUS_DEVPI_INDEX` env var** — configure devpi index name
 - **Token retry logic** — uploader re-authenticates on 401 (expired tokens)
-- **13 new tests** for uploader (init, login, upload, retry, check_exists)
+- **20 new tests** — 13 for uploader, 7 for version rewriting (96 total)
 
 ### Changed
 - Config defaults: `devpi_url` → `http://localhost:3141`, `devpi_index` → `lazarus/packages`
 - Config: added `upload_enabled` flag (default: off, requires explicit opt-in)
 - Pipeline: `ProcessResult.dists_uploaded` tracks what was published
+
+### Fixed
+- **devpi auth encoding** — X-Devpi-Auth requires base64(user:token), not plain text
+- **Dynamic version packages** — packages with `dynamic = ["version"]` (flit, hatchling)
+  now get version set statically in pyproject.toml before build
+- **SETUPTOOLS_SCM_PRETEND_VERSION** — passed to build env for git-tag-based versions
+- **PKG-INFO rewriting** — sdist metadata rewritten as universal fallback
+- **Test skip logic** — only skip `__init__.py` in dirs starting with "test", not paths
+  containing "test" anywhere
+- **nginx proxy** — added `/+f/` and `/%2Bf/` routes for devpi file downloads
 
 ---
 
