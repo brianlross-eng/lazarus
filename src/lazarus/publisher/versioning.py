@@ -77,10 +77,31 @@ def is_lazarus_version(version_str: str) -> bool:
 def rewrite_version_in_source(source_dir: Path, new_version: str) -> list[str]:
     """Update version strings in package config files.
 
-    Rewrites version in pyproject.toml, setup.py, setup.cfg, and __init__.py.
+    Rewrites version in PKG-INFO, pyproject.toml, setup.py, setup.cfg,
+    and __init__.py.  PKG-INFO is the authoritative metadata in sdists
+    and is always rewritten when present — this covers packages with
+    dynamic versions (flit, setuptools_scm, hatchling, etc.).
+
     Returns list of files modified.
     """
     modified: list[str] = []
+
+    # PKG-INFO — authoritative metadata in sdists (always present).
+    # Covers packages with dynamic versions that can't be rewritten
+    # in source (flit reads __version__ via import, setuptools_scm
+    # uses git tags, hatchling uses VCS).
+    pkg_info = source_dir / "PKG-INFO"
+    if pkg_info.exists():
+        content = pkg_info.read_text(encoding="utf-8")
+        new_content = re.sub(
+            r"(^Version:\s*).+$",
+            rf"\g<1>{new_version}",
+            content,
+            flags=re.MULTILINE,
+        )
+        if new_content != content:
+            pkg_info.write_text(new_content, encoding="utf-8")
+            modified.append(str(pkg_info))
 
     # pyproject.toml
     pyproject = source_dir / "pyproject.toml"
@@ -123,8 +144,9 @@ def rewrite_version_in_source(source_dir: Path, new_version: str) -> list[str]:
 
     # Look for __init__.py with __version__
     for init_file in source_dir.rglob("__init__.py"):
-        # Skip test directories
-        if "test" in str(init_file).lower():
+        # Skip test directories (check relative path only)
+        rel = init_file.relative_to(source_dir)
+        if any(p.startswith("test") for p in rel.parts):
             continue
         try:
             content = init_file.read_text(encoding="utf-8")
