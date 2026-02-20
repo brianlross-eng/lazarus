@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from base64 import b64encode
 from pathlib import Path
 
 import httpx
@@ -16,7 +17,7 @@ class DevpiUploader:
 
     Uses devpi's native authentication protocol:
     1. POST JSON credentials to /+login to get a session token
-    2. Use X-Devpi-Auth header with user,token for all subsequent requests
+    2. Use X-Devpi-Auth header with base64(user:token) for all subsequent requests
     3. Upload via POST with :action=file_upload multipart form data
     """
 
@@ -53,10 +54,16 @@ class DevpiUploader:
         return token
 
     def _auth_header(self) -> dict[str, str]:
-        """Return the X-Devpi-Auth header, logging in if needed."""
+        """Return the X-Devpi-Auth header, logging in if needed.
+
+        devpi encodes auth as base64(user:token) — matching the
+        devpi-client ``set_devpi_auth_header`` implementation.
+        """
         if self._token is None:
             self._login()
-        return {"X-Devpi-Auth": f"{self._user},{self._token}"}
+        raw = f"{self._user}:{self._token}"
+        encoded = b64encode(raw.encode("ascii")).decode("ascii")
+        return {"X-Devpi-Auth": encoded}
 
     def _get_upload_url(self) -> str:
         return f"{self._server_url}/{self._index}/"

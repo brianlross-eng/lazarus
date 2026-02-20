@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from base64 import b64encode
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -98,7 +99,8 @@ class TestDevpiLogin:
         with patch.object(u._http, "post", return_value=mock_resp):
             header = u._auth_header()
 
-        assert header == {"X-Devpi-Auth": "lazarus,tok-abc"}
+        expected = b64encode(b"lazarus:tok-abc").decode("ascii")
+        assert header == {"X-Devpi-Auth": expected}
         u.close()
 
 
