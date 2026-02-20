@@ -101,7 +101,9 @@ class TestRewriteVersionInSource:
 
     def test_skips_dynamic_version_init(self, tmp_path) -> None:
         """Packages like pyparsing compute __version__ dynamically."""
-        pkg_dir = tmp_path / "mypkg"
+        source = tmp_path / "src"
+        source.mkdir()
+        pkg_dir = source / "mypkg"
         pkg_dir.mkdir()
         init = pkg_dir / "__init__.py"
         init.write_text(
@@ -109,5 +111,33 @@ class TestRewriteVersionInSource:
             "__version__ = __version_info__.__version__\n"
         )
         # No quoted __version__ = "..." so regex won't match
-        modified = rewrite_version_in_source(tmp_path, "3.3.2.post314")
+        modified = rewrite_version_in_source(source, "3.3.2.post314")
         assert str(init) not in modified
+
+    def test_converts_dynamic_version_to_static(self, tmp_path) -> None:
+        """Packages with dynamic = ['version'] get it set statically."""
+        pp = tmp_path / "pyproject.toml"
+        pp.write_text(
+            '[project]\n'
+            'name = "mypkg"\n'
+            'dynamic = ["version", "description"]\n'
+        )
+        modified = rewrite_version_in_source(tmp_path, "3.3.2.post314")
+        assert str(pp) in modified
+        content = pp.read_text()
+        assert 'version = "3.3.2.post314"' in content
+        assert '"version"' not in content  # removed from dynamic
+        assert '"description"' in content  # kept other dynamic fields
+
+    def test_converts_version_only_dynamic(self, tmp_path) -> None:
+        """When version is the only dynamic field, remove dynamic entirely."""
+        pp = tmp_path / "pyproject.toml"
+        pp.write_text(
+            '[project]\n'
+            'name = "mypkg"\n'
+            'dynamic = ["version"]\n'
+        )
+        modified = rewrite_version_in_source(tmp_path, "1.0.0.post314")
+        content = pp.read_text()
+        assert 'version = "1.0.0.post314"' in content
+        assert "dynamic" not in content

@@ -107,11 +107,36 @@ def rewrite_version_in_source(source_dir: Path, new_version: str) -> list[str]:
     pyproject = source_dir / "pyproject.toml"
     if pyproject.exists():
         content = pyproject.read_text(encoding="utf-8")
+        new_content = content
+
+        # If version is in the dynamic list, remove it and set statically.
+        # This forces all PEP 517 build backends (flit, setuptools_scm,
+        # hatchling, etc.) to use our version instead of computing one.
+        if re.search(r'dynamic\s*=\s*\[.*"version"', new_content):
+            # Remove "version" from dynamic list (may also contain "description")
+            new_content = re.sub(
+                r'(dynamic\s*=\s*\[)\s*"version"\s*,?\s*',
+                r'\1',
+                new_content,
+            )
+            # Clean up trailing comma before closing bracket
+            new_content = re.sub(r',\s*\]', ']', new_content)
+            # Clean up empty dynamic list: dynamic = [] → remove entirely
+            new_content = re.sub(r'dynamic\s*=\s*\[\s*\]\n?', '', new_content)
+            # Add static version after name field in [project] section
+            new_content = re.sub(
+                r'(name\s*=\s*"[^"]+"\s*\n)',
+                rf'\1version = "{new_version}"\n',
+                new_content,
+            )
+
+        # Also rewrite any existing static version = "..." line
         new_content = re.sub(
             r'(version\s*=\s*["\'])[^"\']+(["\'])',
             rf'\g<1>{new_version}\2',
-            content,
+            new_content,
         )
+
         if new_content != content:
             pyproject.write_text(new_content, encoding="utf-8")
             modified.append(str(pyproject))
