@@ -101,13 +101,34 @@ Matching the auto-fixable analyzer checks above. The escape sequence fixer uses 
 ## Domain & Infrastructure
 - **Domain**: lazaruspy.org (Cloudflare Registrar)
 - **Email**: admin@lazaruspy.org (Cloudflare Email Routing → personal email)
-- **DNS**: Cloudflare — needs A record → Hetzner server IP
+- **DNS**: Cloudflare — A record → 89.167.40.82, CNAME www → lazaruspy.org
+- **Server**: Hetzner CX33 (4 vCPU, 8 GB RAM, 80 GB SSD) — Helsinki, Ubuntu 24.04
+- **Server IP**: 89.167.40.82 (hostname: lazarus-prod)
 - **Package index URL**: https://lazaruspy.org/simple/
+- **SSL**: Let's Encrypt (auto-renew via certbot)
+
+## Server Stack
+- **devpi-server 6.19.1** on port 3141 (localhost only), proxied by nginx
+- **devpi user**: `lazarus` (password: `lazarus314prod`)
+- **devpi index**: `lazarus/packages` (inherits from `root/pypi`)
+- **nginx**: reverse proxy, `/simple/` → devpi `lazarus/packages/+simple/`
+- **Python**: 3.14.3 (deadsnakes PPA) at `/opt/lazarus-venv/`
+- **Lazarus**: installed from `/opt/lazarus/` (git clone of repo)
+
+## Server Services (systemd)
+- `devpi.service` — devpi-server on 127.0.0.1:3141 (enabled, running)
+- `lazarus-processor.service` — `admin process --auto-only` (enabled, running)
+- `lazarus-watchdog.service` — `admin watchdog` (enabled, running)
+- `lazarus-seed.timer` — weekly seed of top 5,000 packages
+
+## Server SSH Access
+```bash
+ssh -i ~/.ssh/id_ed25519 root@89.167.40.82
+```
 
 ## What's Next
-- **Hetzner server setup** — purchase, deploy devpi + nginx, configure for unattended operation
-- Point lazaruspy.org DNS A record to Hetzner server IP
-- Server deployment files needed: `deploy/devpi/docker-compose.yml`, nginx.conf, setup scripts
-- `server/config.py` and `server/deploy.py` need implementation
-- Consider seeding larger batch (5,000-10,000) to find more packages needing fixes
-- `publisher/uploader.py` needs implementation for pushing to devpi
+- Implement `publisher/uploader.py` for pushing fixed packages to devpi
+- Implement `server/config.py` and `server/deploy.py` for reproducible deployment
+- Seed larger batch (5,000-10,000) to find more packages needing fixes
+- Set up monitoring/alerting for server health
+- Consider Cloudflare proxy (orange cloud) after SSL is stable
