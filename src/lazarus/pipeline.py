@@ -183,7 +183,7 @@ class Pipeline:
             elif needs_ai:
                 # No API key — flag for later review
                 issue_summary = "; ".join(
-                    f"{i.issue_type} in {Path(i.file_path).name}:{i.line}"
+                    f"{i.issue_type} in {Path(i.file_path).name}:{i.line_number}"
                     for i in needs_ai[:10]  # cap at 10 to keep reason readable
                 )
                 if len(needs_ai) > 10:
