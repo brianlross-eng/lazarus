@@ -18,10 +18,11 @@ class LazarusConfig:
     python_binary: str = "python3.14"
 
     # Server
-    devpi_url: str = "https://lazarus.dev"
-    devpi_index: str = "lazarus/stable"
+    devpi_url: str = "http://localhost:3141"
+    devpi_index: str = "lazarus/packages"
     devpi_user: str = "lazarus"
     devpi_password: str = ""
+    upload_enabled: bool = False
 
     # Claude API
     anthropic_api_key: str = ""
@@ -57,8 +58,13 @@ class LazarusConfig:
         config = cls()
         config.devpi_password = os.environ.get("LAZARUS_DEVPI_PASSWORD", "")
         config.anthropic_api_key = os.environ.get("ANTHROPIC_API_KEY", "")
+        config.upload_enabled = os.environ.get("LAZARUS_UPLOAD", "").lower() in (
+            "1", "true", "yes",
+        )
         if url := os.environ.get("LAZARUS_DEVPI_URL"):
             config.devpi_url = url
+        if index := os.environ.get("LAZARUS_DEVPI_INDEX"):
+            config.devpi_index = index
         if model := os.environ.get("LAZARUS_CLAUDE_MODEL"):
             config.claude_model = model
         if target := os.environ.get("LAZARUS_PYTHON_TARGET"):

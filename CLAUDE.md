@@ -80,10 +80,13 @@ src/lazarus/
 Matching the auto-fixable analyzer checks above. The escape sequence fixer uses a character-by-character state machine to double invalid backslashes while preserving valid escapes and raw strings.
 
 ## Pipeline Behavior
+- Full loop: fetch → analyze → fix → build → **upload to devpi**
 - `SKIP_BUILD_PACKAGES` frozenset: 26 C-extension packages that hang during build
 - `_has_c_extensions()` heuristic: detects .c/.cpp/.pyx files and ext_modules in setup.py
 - `needs_review` workflow: packages with unfixed AI issues get flagged instead of silently completed
 - Two-tier design: server runs `--auto-only` (no API key), reviews pulled locally for Claude fixing
+- Upload requires `--upload` flag or `LAZARUS_UPLOAD=1` + `LAZARUS_DEVPI_PASSWORD`
+- DevpiUploader uses native devpi auth: login → token → X-Devpi-Auth header
 
 ## Batch Processing Results (Top 1,000 PyPI packages)
 - 922 already compatible (92.2%)
@@ -132,8 +135,10 @@ ssh -i ~/.ssh/id_ed25519 root@89.167.40.82
 ```
 
 ## What's Next (toward 1.0.0a2)
-- Implement `publisher/uploader.py` for pushing fixed packages to devpi
+- Enable `--upload` on server processor (set LAZARUS_DEVPI_PASSWORD + LAZARUS_UPLOAD=1)
 - Implement `server/config.py` and `server/deploy.py` for reproducible deployment
 - Seed larger batch (5,000-10,000) to find more packages needing fixes
+- Add `/status/<package>` API endpoint for verified compatibility checks
+- Add skip/ignore mechanism for acknowledged-but-won't-fix issues
 - Set up monitoring/alerting for server health
 - Consider Cloudflare proxy (orange cloud) after SSL is stable

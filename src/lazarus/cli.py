@@ -141,10 +141,16 @@ ENVIRONMENT VARIABLES
         only mechanical auto-fixes are applied.
 
     LAZARUS_DEVPI_URL
-        URL of the Lazarus devpi server (default: https://lazarus.dev).
+        URL of the Lazarus devpi server (default: http://localhost:3141).
 
     LAZARUS_DEVPI_PASSWORD
         Password for uploading packages to the devpi index.
+
+    LAZARUS_DEVPI_INDEX
+        Devpi index name (default: lazarus/packages).
+
+    LAZARUS_UPLOAD
+        Set to "1" or "true" to enable uploading fixed packages to devpi.
 
     LAZARUS_PYTHON_TARGET
         Python version to target for compatibility (default: 3.14).
@@ -449,16 +455,32 @@ def status() -> None:
 @admin.command()
 @click.option("--max-jobs", "-n", default=0, help="Max jobs to process (0 = all)")
 @click.option("--auto-only", is_flag=True, help="Only apply auto-fixes (no AI)")
-def process(max_jobs: int, auto_only: bool) -> None:
+@click.option("--upload", is_flag=True, help="Upload fixed packages to devpi")
+def process(max_jobs: int, auto_only: bool, upload: bool) -> None:
     """Run batch processing on the queue."""
     from lazarus.pipeline import Pipeline
 
     config = get_config()
+    if upload:
+        config.upload_enabled = True
+        if not config.devpi_password:
+            console.print("[red]--upload requires LAZARUS_DEVPI_PASSWORD to be set[/]")
+            raise SystemExit(1)
     pipeline = Pipeline(config)
+
+    if pipeline.uploader:
+        console.print(
+            f"[bold green]Upload enabled[/] → {config.devpi_url}/{config.devpi_index}"
+        )
 
     try:
         result = pipeline.run_batch(max_jobs=max_jobs, auto_only=auto_only)
+        uploaded_count = sum(
+            len(r.dists_uploaded) for r in result.results if r.dists_uploaded
+        )
         console.print(f"\n[bold]Processed {result.processed} package(s)[/]")
+        if uploaded_count:
+            console.print(f"[bold green]Uploaded {uploaded_count} dist(s) to devpi[/]")
     finally:
         pipeline.close()
 

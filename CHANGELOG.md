@@ -7,6 +7,26 @@ Versioning follows [PEP 440](https://peps.python.org/pep-0440/) and [Semantic Ve
 
 ---
 
+## [Unreleased] — toward 1.0.0a2
+
+### Added
+- **DevpiUploader** — full devpi upload support with native auth protocol
+  (login → session token → X-Devpi-Auth header → multipart file upload)
+- **Upload integration in pipeline** — fixed packages now get published to devpi
+  after build, completing the fetch → analyze → fix → build → **publish** loop
+- **`--upload` CLI flag** — `lazarus admin process --upload` enables publishing
+- **`LAZARUS_UPLOAD` env var** — enable uploads via environment
+- **`LAZARUS_DEVPI_INDEX` env var** — configure devpi index name
+- **Token retry logic** — uploader re-authenticates on 401 (expired tokens)
+- **13 new tests** for uploader (init, login, upload, retry, check_exists)
+
+### Changed
+- Config defaults: `devpi_url` → `http://localhost:3141`, `devpi_index` → `lazarus/packages`
+- Config: added `upload_enabled` flag (default: off, requires explicit opt-in)
+- Pipeline: `ProcessResult.dists_uploaded` tracks what was published
+
+---
+
 ## [1.0.0a1] — 2026-02-20
 
 First alpha release. End-to-end pipeline operational: fetch → analyze → fix → build,

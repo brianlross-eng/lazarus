@@ -18,6 +18,7 @@ from lazarus.db.queue import JobQueue
 from lazarus.fixer.auto import AutoFixer
 from lazarus.fixer.patcher import Patcher
 from lazarus.publisher.builder import PackageBuilder
+from lazarus.publisher.uploader import DevpiUploader, UploadError
 from lazarus.publisher.versioning import lazarus_version, rewrite_version_in_source
 from lazarus.pypi.client import PyPIClient
 
@@ -86,6 +87,7 @@ class ProcessResult:
     issues_fixed: int = 0
     error: str | None = None
     dists_built: list[str] = field(default_factory=list)
+    dists_uploaded: list[str] = field(default_factory=list)
     needs_review: bool = False
     review_reason: str | None = None
 
@@ -113,9 +115,19 @@ class Pipeline:
         self.auto_fixer = AutoFixer()
         self.patcher = Patcher()
         self.builder = PackageBuilder()
+        self.uploader: DevpiUploader | None = None
+        if config.upload_enabled and config.devpi_password:
+            self.uploader = DevpiUploader(
+                server_url=config.devpi_url,
+                index=config.devpi_index,
+                user=config.devpi_user,
+                password=config.devpi_password,
+            )
 
     def close(self) -> None:
         self.pypi.close()
+        if self.uploader:
+            self.uploader.close()
 
     def process_one(self, job: Job) -> ProcessResult:
         """Run the full pipeline for a single package."""
@@ -226,7 +238,7 @@ class Pipeline:
                 new_ver = lazarus_version(job.version, python_target)
                 rewrite_version_in_source(source_dir, new_ver)
 
-                console.print(f"  [dim]Building distributions...[/]")
+                console.print(f"  [dim]Building {new_ver}...[/]")
                 output_dir = work_dir / "dist"
                 try:
                     dists = self.builder.build_all(source_dir, output_dir)
@@ -235,6 +247,22 @@ class Pipeline:
                 except Exception as e:
                     console.print(f"  [red]Build failed: {e}[/]")
                     result.error = str(e)
+
+                # 7. Upload to devpi (if build succeeded and uploader configured)
+                if result.success and result.dists_built and self.uploader:
+                    console.print(f"  [dim]Uploading to devpi...[/]")
+                    try:
+                        dist_files = list(output_dir.iterdir())
+                        uploaded = self.uploader.upload(dist_files)
+                        result.dists_uploaded = uploaded
+                        console.print(
+                            f"  [green]Uploaded {len(uploaded)} dist(s) "
+                            f"to {self.config.devpi_index}[/]"
+                        )
+                    except UploadError as e:
+                        console.print(f"  [red]Upload failed: {e}[/]")
+                        # Upload failure is non-fatal — build still succeeded
+                        result.error = f"Upload failed: {e}"
 
             # Cleanup backup
             self.patcher.cleanup_backup(backup_path)
