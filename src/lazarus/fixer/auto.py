@@ -75,6 +75,7 @@ class AutoFixer:
             "removed_pty_function": self._fix_pty_functions,
             "removed_importlib_abc": self._fix_importlib_abc,
             "invalid_escape_sequence": self._fix_invalid_escape_sequences,
+            "deprecated_pkg_resources": self._fix_pkg_resources,
         }.get(issue.issue_type)
 
         if handler is None:
@@ -158,6 +159,118 @@ class AutoFixer:
                 source,
             )
         return source
+
+    def _fix_pkg_resources(self, source: str, issue: CompatIssue) -> str:
+        """Replace pkg_resources usage with importlib.metadata/resources equivalents.
+
+        Handles the most common patterns:
+        - pkg_resources.get_distribution('X').version → importlib.metadata.version('X')
+        - pkg_resources.require('X') → removed (no-op when installed via pip)
+        - pkg_resources.resource_filename(X, Y) → str(importlib.resources.files(X).joinpath(Y))
+        - import/from statements updated accordingly
+        """
+        needs_metadata = False
+        needs_resources = False
+
+        # 1. Replace pkg_resources.get_distribution('X').version
+        #    → importlib.metadata.version('X')
+        pattern = r'pkg_resources\.get_distribution\(([^)]+)\)\.version'
+        if re.search(pattern, source):
+            source = re.sub(pattern, r'importlib.metadata.version(\1)', source)
+            needs_metadata = True
+
+        # 2. Replace pkg_resources.get_distribution('X') standalone (not .version)
+        #    → importlib.metadata.metadata('X') or just version lookup
+        #    This is trickier — leave for now if .version was already handled
+
+        # 3. Replace pkg_resources.require('X') → pass (empty statement)
+        #    or remove the line entirely if it's standalone
+        source = re.sub(
+            r'^(\s*)pkg_resources\.require\([^)]*\)\s*$',
+            r'\1pass  # require() removed (dependencies handled by pip)',
+            source,
+            flags=re.MULTILINE,
+        )
+
+        # 4. Replace pkg_resources.resource_filename(X, Y)
+        #    → str(importlib.resources.files(X).joinpath(Y))
+        pattern_rf = r'pkg_resources\.resource_filename\(([^,]+),\s*([^)]+)\)'
+        if re.search(pattern_rf, source):
+            source = re.sub(
+                pattern_rf,
+                r'str(importlib.resources.files(\1).joinpath(\2))',
+                source,
+            )
+            needs_resources = True
+
+        # 5. Replace from pkg_resources import get_distribution
+        source = re.sub(
+            r'from pkg_resources import get_distribution\b',
+            'from importlib.metadata import version as get_distribution',
+            source,
+        )
+
+        # 6. Replace from pkg_resources import resource_filename
+        if re.search(r'from pkg_resources import resource_filename\b', source):
+            source = re.sub(
+                r'from pkg_resources import resource_filename\b',
+                'from importlib.resources import files as _pkg_files',
+                source,
+            )
+            # Adjust call sites: resource_filename(X, Y) → str(_pkg_files(X).joinpath(Y))
+            source = re.sub(
+                r'resource_filename\(([^,]+),\s*([^)]+)\)',
+                r'str(_pkg_files(\1).joinpath(\2))',
+                source,
+            )
+
+        # 7. Replace bare `import pkg_resources` with appropriate import
+        if re.search(r'^\s*import pkg_resources\s*$', source, re.MULTILINE):
+            # Check if pkg_resources is still referenced (we may have replaced all usages)
+            remaining = len(re.findall(r'\bpkg_resources\b', source))
+            # Subtract the import line itself
+            import_lines = len(re.findall(
+                r'^\s*import pkg_resources\s*$', source, re.MULTILINE
+            ))
+            if remaining <= import_lines:
+                # All usages replaced — remove the import
+                source = re.sub(
+                    r'^\s*import pkg_resources\s*\n',
+                    '',
+                    source,
+                    flags=re.MULTILINE,
+                )
+            else:
+                # Still has usages we couldn't replace — add importlib.metadata
+                # as an alias and do a bulk replacement
+                source = re.sub(
+                    r'^(\s*)import pkg_resources\s*$',
+                    r'\1import importlib.metadata',
+                    source,
+                    flags=re.MULTILINE,
+                )
+                needs_metadata = True
+
+        # 8. Add missing imports if needed
+        if needs_metadata and 'import importlib.metadata' not in source:
+            source = self._add_import(source, 'import importlib.metadata')
+
+        if needs_resources and 'importlib.resources' not in source:
+            source = self._add_import(source, 'import importlib.resources')
+
+        return source
+
+    @staticmethod
+    def _add_import(source: str, import_line: str) -> str:
+        """Add an import statement after the last existing import."""
+        lines = source.split('\n')
+        insert_idx = 0
+        for i, line in enumerate(lines):
+            stripped = line.lstrip()
+            if stripped.startswith('import ') or stripped.startswith('from '):
+                insert_idx = i + 1
+        lines.insert(insert_idx, import_line)
+        return '\n'.join(lines)
 
     def _fix_invalid_escape_sequences(self, source: str, issue: CompatIssue) -> str:
         r"""Fix invalid escape sequences by doubling unrecognized backslash escapes.

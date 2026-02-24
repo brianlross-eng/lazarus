@@ -171,3 +171,101 @@ class TestAutoFixInvalidEscapeSequences:
         content = f.read_text()
         # The \/ should become \\/ (doubled backslash)
         assert "\\\\/" in content
+
+
+class TestAutoFixPkgResources:
+    def test_fixes_get_distribution_version(self, tmp_path: Path) -> None:
+        """Replace pkg_resources.get_distribution('X').version."""
+        f = _make_file(tmp_path, """\
+            import pkg_resources
+            __version__ = pkg_resources.get_distribution("mypackage").version
+        """)
+        analyzer = StaticAnalyzer()
+        issues = analyzer.analyze_file(f)
+        fixer = AutoFixer()
+        result = fixer.apply_all(tmp_path, issues)
+
+        assert result.issues_fixed >= 1
+        content = f.read_text()
+        assert "pkg_resources" not in content
+        assert 'importlib.metadata.version("mypackage")' in content
+        assert "import importlib.metadata" in content
+
+    def test_fixes_from_import_get_distribution(self, tmp_path: Path) -> None:
+        """Replace from pkg_resources import get_distribution."""
+        f = _make_file(tmp_path, """\
+            from pkg_resources import get_distribution
+            __version__ = get_distribution("mypackage").version
+        """)
+        analyzer = StaticAnalyzer()
+        issues = analyzer.analyze_file(f)
+        fixer = AutoFixer()
+        result = fixer.apply_all(tmp_path, issues)
+
+        assert result.issues_fixed >= 1
+        content = f.read_text()
+        assert "pkg_resources" not in content
+        assert "from importlib.metadata import version as get_distribution" in content
+
+    def test_fixes_require(self, tmp_path: Path) -> None:
+        """Replace pkg_resources.require() with pass."""
+        f = _make_file(tmp_path, """\
+            import pkg_resources
+            pkg_resources.require("somepackage>=1.0")
+        """)
+        analyzer = StaticAnalyzer()
+        issues = analyzer.analyze_file(f)
+        fixer = AutoFixer()
+        result = fixer.apply_all(tmp_path, issues)
+
+        assert result.issues_fixed >= 1
+        content = f.read_text()
+        assert "pkg_resources" not in content
+        assert "pass" in content
+
+    def test_fixes_resource_filename(self, tmp_path: Path) -> None:
+        """Replace pkg_resources.resource_filename(X, Y)."""
+        f = _make_file(tmp_path, """\
+            import pkg_resources
+            path = pkg_resources.resource_filename("mypackage", "data/file.txt")
+        """)
+        analyzer = StaticAnalyzer()
+        issues = analyzer.analyze_file(f)
+        fixer = AutoFixer()
+        result = fixer.apply_all(tmp_path, issues)
+
+        assert result.issues_fixed >= 1
+        content = f.read_text()
+        assert "pkg_resources" not in content
+        assert "importlib.resources.files" in content
+
+    def test_removes_unused_import(self, tmp_path: Path) -> None:
+        """Remove bare import pkg_resources when all usages are replaced."""
+        f = _make_file(tmp_path, """\
+            import pkg_resources
+            v = pkg_resources.get_distribution("foo").version
+        """)
+        analyzer = StaticAnalyzer()
+        issues = analyzer.analyze_file(f)
+        fixer = AutoFixer()
+        result = fixer.apply_all(tmp_path, issues)
+
+        content = f.read_text()
+        assert "import pkg_resources" not in content
+        assert "importlib.metadata" in content
+
+    def test_fixes_from_import_resource_filename(self, tmp_path: Path) -> None:
+        """Replace from pkg_resources import resource_filename."""
+        f = _make_file(tmp_path, """\
+            from pkg_resources import resource_filename
+            path = resource_filename("mypackage", "data/file.txt")
+        """)
+        analyzer = StaticAnalyzer()
+        issues = analyzer.analyze_file(f)
+        fixer = AutoFixer()
+        result = fixer.apply_all(tmp_path, issues)
+
+        assert result.issues_fixed >= 1
+        content = f.read_text()
+        assert "pkg_resources" not in content
+        assert "_pkg_files" in content

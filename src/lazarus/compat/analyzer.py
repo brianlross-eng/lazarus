@@ -41,7 +41,7 @@ class StaticAnalyzer:
                 issue_type="syntax_error",
                 description="File has syntax errors and cannot be parsed",
                 severity="error",
-                auto_fixable=False,
+                auto_fixable=True,
             )]
 
         path_str = str(file_path)
@@ -344,7 +344,7 @@ class StaticAnalyzer:
                                 "or importlib.resources instead."
                             ),
                             severity="error",
-                            auto_fixable=False,
+                            auto_fixable=True,
                         ))
             if isinstance(node, ast.ImportFrom) and node.module:
                 if node.module == "pkg_resources" or node.module.startswith("pkg_resources."):
@@ -358,7 +358,7 @@ class StaticAnalyzer:
                             "or importlib.resources instead."
                         ),
                         severity="error",
-                        auto_fixable=False,
+                        auto_fixable=True,
                     ))
 
         return issues

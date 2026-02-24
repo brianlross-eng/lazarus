@@ -152,7 +152,7 @@ class TestPkgResources:
         issues = analyzer.analyze_file(f)
         assert len(issues) == 1
         assert issues[0].issue_type == "deprecated_pkg_resources"
-        assert issues[0].auto_fixable is False
+        assert issues[0].auto_fixable is True
 
     def test_detects_from_import(self, analyzer: StaticAnalyzer, tmp_py) -> None:
         f = tmp_py("""\
