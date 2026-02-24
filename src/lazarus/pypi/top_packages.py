@@ -134,11 +134,11 @@ def fetch_all_package_names() -> list[str]:
     """Fetch all package names from the PyPI simple index."""
     import re
 
-    with httpx.Client(timeout=60.0) as client:
+    with httpx.Client(timeout=120.0) as client:
         resp = client.get("https://pypi.org/simple/")
         resp.raise_for_status()
-        # Parse href links — each is a package name
-        return re.findall(r'href="([^"]+)/"', resp.text)
+        # Links are like href="/simple/package-name/" — extract just the name
+        return re.findall(r'href="/simple/([^"]+)/"', resp.text)
 
 
 def seed_queue_deep(
@@ -157,15 +157,16 @@ def seed_queue_deep(
     """
     import random
 
-    log.info("Fetching full PyPI package index...")
+    print("Fetching full PyPI package index...")
     all_names = fetch_all_package_names()
-    log.info("PyPI index contains %d packages", len(all_names))
+    print(f"PyPI index contains {len(all_names)} packages")
 
     existing = queue.get_package_names()
     new_names = [n for n in all_names if n not in existing]
-    log.info(
-        "Deep seed: %d total on PyPI, %d already queued, %d new candidates",
-        len(all_names), len(all_names) - len(new_names), len(new_names),
+    print(
+        f"Deep seed: {len(all_names)} total on PyPI, "
+        f"{len(all_names) - len(new_names)} already queued, "
+        f"{len(new_names)} new candidates"
     )
 
     if not new_names:
@@ -173,7 +174,7 @@ def seed_queue_deep(
 
     # Sample randomly from the long tail
     sample = random.sample(new_names, min(count, len(new_names)))
-    log.info("Sampled %d packages to resolve", len(sample))
+    print(f"Sampled {len(sample)} packages to resolve")
 
     # Concurrent version resolution
     batch: list[tuple[str, str, int]] = []
@@ -189,7 +190,7 @@ def seed_queue_deep(
                 batch.append(result)
             resolved += 1
             if resolved % 500 == 0:
-                log.info("  Resolved %d / %d versions...", resolved, len(sample))
+                print(f"  Resolved {resolved} / {len(sample)} versions...")
 
     log.info("Resolved %d / %d versions", len(batch), len(sample))
     return queue.add_batch(batch, python_target=python_target)
