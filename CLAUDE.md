@@ -16,7 +16,7 @@ PyPI-compatible proxy repository that automatically resurrects Python packages b
 
 ## Key Commands
 ```bash
-# Run all tests (96 tests, should all pass)
+# Run all tests (102 tests, should all pass)
 python -m pytest -v
 
 # CLI (must use python -m until pip install -e . is done)
@@ -26,6 +26,7 @@ python -m lazarus admin reviews         # Show packages needing AI/manual fix
 python -m lazarus admin process --auto-only  # Process queue (auto-fixes only)
 python -m lazarus admin watchdog        # Supervisor process
 python -m lazarus admin seed --count 1000    # Seed queue from top PyPI packages
+python -m lazarus admin seed --deep -n 5000  # Seed from full PyPI index (long tail)
 
 # Useful direct DB queries
 python -c "from lazarus.config import LazarusConfig; from lazarus.db.queue import JobQueue; q = JobQueue(LazarusConfig().db_path); q.initialize(); print(q.get_status()); q.close()"
@@ -73,11 +74,11 @@ src/lazarus/
 7. `removed_shutil_onerror` — onerror → onexc ✅ auto-fixable
 8. `pathlib_extra_args` — multiple args to relative_to/is_relative_to ❌ needs AI
 9. `removed_pty_function` — master_open/slave_open → openpty ✅ auto-fixable
-10. `deprecated_pkg_resources` — pkg_resources imports ❌ needs AI
+10. `deprecated_pkg_resources` — pkg_resources imports ✅ auto-fixable (common patterns)
 11. `invalid_escape_sequence` — \p, \/, \d etc. in non-raw strings ✅ auto-fixable
 
-## Auto-Fixer Handlers (7 types in fixer/auto.py)
-Matching the auto-fixable analyzer checks above. The escape sequence fixer uses a character-by-character state machine to double invalid backslashes while preserving valid escapes and raw strings.
+## Auto-Fixer Handlers (8 types in fixer/auto.py)
+Matching the auto-fixable analyzer checks above. The escape sequence fixer uses a character-by-character state machine to double invalid backslashes while preserving valid escapes and raw strings. The pkg_resources fixer handles get_distribution().version, require(), and resource_filename() patterns via regex replacement.
 
 ## Pipeline Behavior
 - Full loop: fetch → analyze → fix → build → **upload to devpi** → installable via pip
@@ -93,10 +94,13 @@ Matching the auto-fixable analyzer checks above. The escape sequence fixer uses 
   3. PKG-INFO rewrite as universal sdist fallback
   4. Regex rewrites for setup.py, setup.cfg, __init__.py with `__version__ = "..."`
 
-## Batch Processing Results (Top 1,000 PyPI packages)
-- 922 already compatible (92.2%)
-- 35 auto-fixed (3.5%)
-- 43 failed — mostly no sdist available (NVIDIA, PyTorch, TensorFlow) or C-extension build issues
+## Batch Processing Results
+### Top 15,000 (hugovk dataset) + 10,000 deep seed (random PyPI)
+- ~15,200 already compatible
+- ~956 auto-fixed (escape sequences, pkg_resources, etc.)
+- ~1,456 failed — mostly no sdist available or C-extension build issues
+- ~50 needs_review — mostly syntax_error (Python 2 dead code)
+- Server queue: 24,666 total packages (processing ongoing)
 - 0 needs_review (these top packages are well-maintained)
 
 ## Database
@@ -146,9 +150,11 @@ ssh -i ~/.ssh/id_ed25519 root@89.167.40.82
 - Install: `pip install --extra-index-url https://lazaruspy.org/simple/ <package>`
 
 ## What's Next (toward 1.0.0a2)
-- Seed larger batch (5,000-10,000) to find more packages needing fixes
+- ~~Seed larger batch~~ Done: 24,666 packages (top-15k + 10k deep seed)
+- ~~Add pkg_resources auto-fixer~~ Done: 8th fix type
 - Implement `server/config.py` and `server/deploy.py` for reproducible deployment
 - Add `/status/<package>` API endpoint for verified compatibility checks
 - Add skip/ignore mechanism for acknowledged-but-won't-fix issues
 - Set up monitoring/alerting for server health
 - Consider Cloudflare proxy (orange cloud) after SSL is stable
+- Reduce processor idle churn (currently restarts every 60s even when queue empty)
