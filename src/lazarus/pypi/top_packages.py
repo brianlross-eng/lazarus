@@ -2,9 +2,14 @@
 
 from __future__ import annotations
 
+import concurrent.futures
+import logging
+
 import httpx
 
 from lazarus.db.queue import JobQueue
+
+log = logging.getLogger(__name__)
 
 # Monthly top packages dataset maintained by hugovk
 TOP_PACKAGES_URL = (
@@ -43,12 +48,25 @@ def fetch_top_packages(
     return result
 
 
+def _resolve_version(name: str, downloads: int) -> tuple[str, str, int] | None:
+    """Resolve latest version for a single package via PyPI JSON API."""
+    try:
+        with httpx.Client(timeout=15.0) as client:
+            resp = client.get(f"https://pypi.org/pypi/{name}/json")
+            resp.raise_for_status()
+            version = resp.json()["info"]["version"]
+            return (name, version, downloads)
+    except Exception:
+        return None
+
+
 def seed_queue(
     queue: JobQueue,
     count: int = 1000,
     python_target: str = "3.14",
     pypi_client: object | None = None,
     http: httpx.Client | None = None,
+    max_workers: int = 30,
 ) -> int:
     """Seed the job queue with the top N packages from PyPI.
 
@@ -63,19 +81,50 @@ def seed_queue(
 
     packages = fetch_top_packages(count, http=http)
 
-    if pypi_client is None:
-        cache_dir = Path(tempfile.mkdtemp(prefix="lazarus_"))
-        client = PyPIClient(cache_dir)
-    else:
-        client = pypi_client  # type: ignore[assignment]
+    # Filter out packages already in the queue to avoid wasted API calls
+    existing = queue.get_package_names()
+    new_packages = [(n, d) for n, d in packages if n not in existing]
+    log.info(
+        "Seed: %d total, %d already queued, %d to resolve",
+        len(packages), len(packages) - len(new_packages), len(new_packages),
+    )
 
-    batch: list[tuple[str, str, int]] = []
-    for name, downloads in packages:
-        try:
-            version = client.get_latest_version(name)
-            batch.append((name, version, downloads))
-        except Exception:
-            # Skip packages we can't resolve
-            continue
+    if not new_packages:
+        return 0
+
+    # Use concurrent resolution for speed (sequential for tests or small batches)
+    if pypi_client is not None or len(new_packages) <= 50:
+        # Legacy sequential path (used by tests with mock client)
+        if pypi_client is None:
+            cache_dir = Path(tempfile.mkdtemp(prefix="lazarus_"))
+            client = PyPIClient(cache_dir)
+        else:
+            client = pypi_client  # type: ignore[assignment]
+
+        batch: list[tuple[str, str, int]] = []
+        for name, downloads in new_packages:
+            try:
+                version = client.get_latest_version(name)
+                batch.append((name, version, downloads))
+            except Exception:
+                continue
+    else:
+        # Concurrent resolution via thread pool
+        batch = []
+        resolved = 0
+        with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as pool:
+            futures = {
+                pool.submit(_resolve_version, name, downloads): name
+                for name, downloads in new_packages
+            }
+            for future in concurrent.futures.as_completed(futures):
+                result = future.result()
+                if result is not None:
+                    batch.append(result)
+                resolved += 1
+                if resolved % 500 == 0:
+                    log.info("  Resolved %d / %d versions...", resolved, len(new_packages))
+
+        log.info("Resolved %d / %d versions", len(batch), len(new_packages))
 
     return queue.add_batch(batch, python_target=python_target)

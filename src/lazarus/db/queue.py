@@ -213,6 +213,11 @@ class JobQueue:
         ).fetchall()
         return [(row["last_error"], row["count"]) for row in rows]
 
+    def get_package_names(self) -> set[str]:
+        """Get all package names currently in the queue."""
+        rows = self._conn.execute("SELECT package_name FROM jobs").fetchall()
+        return {row["package_name"] for row in rows}
+
     def search(self, package_name: str) -> list[Job]:
         """Search for jobs by package name (partial match)."""
         rows = self._conn.execute(
