@@ -128,3 +128,68 @@ def seed_queue(
         log.info("Resolved %d / %d versions", len(batch), len(new_packages))
 
     return queue.add_batch(batch, python_target=python_target)
+
+
+def fetch_all_package_names() -> list[str]:
+    """Fetch all package names from the PyPI simple index."""
+    import re
+
+    with httpx.Client(timeout=60.0) as client:
+        resp = client.get("https://pypi.org/simple/")
+        resp.raise_for_status()
+        # Parse href links — each is a package name
+        return re.findall(r'href="([^"]+)/"', resp.text)
+
+
+def seed_queue_deep(
+    queue: JobQueue,
+    count: int = 5000,
+    python_target: str = "3.14",
+    max_workers: int = 30,
+) -> int:
+    """Seed the queue from the full PyPI index (beyond the top-15k).
+
+    Fetches all package names from PyPI, filters out already-queued ones,
+    then randomly samples ``count`` packages and resolves their versions
+    concurrently.
+
+    Returns the number of new jobs added.
+    """
+    import random
+
+    log.info("Fetching full PyPI package index...")
+    all_names = fetch_all_package_names()
+    log.info("PyPI index contains %d packages", len(all_names))
+
+    existing = queue.get_package_names()
+    new_names = [n for n in all_names if n not in existing]
+    log.info(
+        "Deep seed: %d total on PyPI, %d already queued, %d new candidates",
+        len(all_names), len(all_names) - len(new_names), len(new_names),
+    )
+
+    if not new_names:
+        return 0
+
+    # Sample randomly from the long tail
+    sample = random.sample(new_names, min(count, len(new_names)))
+    log.info("Sampled %d packages to resolve", len(sample))
+
+    # Concurrent version resolution
+    batch: list[tuple[str, str, int]] = []
+    resolved = 0
+    with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as pool:
+        futures = {
+            pool.submit(_resolve_version, name, 0): name
+            for name in sample
+        }
+        for future in concurrent.futures.as_completed(futures):
+            result = future.result()
+            if result is not None:
+                batch.append(result)
+            resolved += 1
+            if resolved % 500 == 0:
+                log.info("  Resolved %d / %d versions...", resolved, len(sample))
+
+    log.info("Resolved %d / %d versions", len(batch), len(sample))
+    return queue.add_batch(batch, python_target=python_target)

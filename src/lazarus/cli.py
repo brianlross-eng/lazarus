@@ -404,18 +404,27 @@ def admin() -> None:
 
 
 @admin.command()
-@click.option("--count", "-n", default=1000, help="Number of top packages to seed")
-def seed(count: int) -> None:
-    """Seed the job queue with the top N packages from PyPI."""
+@click.option("--count", "-n", default=1000, help="Number of packages to seed")
+@click.option("--deep", is_flag=True, help="Seed from full PyPI index (beyond top-15k)")
+def seed(count: int, deep: bool) -> None:
+    """Seed the job queue with packages from PyPI."""
     from lazarus.db.queue import JobQueue
-    from lazarus.pypi.top_packages import seed_queue as do_seed
 
     config = get_config()
     queue = JobQueue(config.db_path)
     queue.initialize()
 
-    console.print(f"[bold]Seeding queue with top {count} packages...[/]")
-    added = do_seed(queue, count=count, python_target=config.python_target)
+    if deep:
+        from lazarus.pypi.top_packages import seed_queue_deep
+
+        console.print(f"[bold]Deep seeding {count} packages from full PyPI index...[/]")
+        added = seed_queue_deep(queue, count=count, python_target=config.python_target)
+    else:
+        from lazarus.pypi.top_packages import seed_queue as do_seed
+
+        console.print(f"[bold]Seeding queue with top {count} packages...[/]")
+        added = do_seed(queue, count=count, python_target=config.python_target)
+
     total = queue.count()
     console.print(f"[green]Added {added} new packages. Total in queue: {total}[/]")
 
