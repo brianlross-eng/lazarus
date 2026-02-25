@@ -82,6 +82,7 @@ Matching the auto-fixable analyzer checks above. The escape sequence fixer uses 
 
 ## Pipeline Behavior
 - Full loop: fetch → analyze → fix → build → **upload to devpi** → installable via pip
+- **Cache cleanup**: cached sdists are deleted after each job completes (prevents disk exhaustion)
 - `SKIP_BUILD_PACKAGES` frozenset: 26 C-extension packages that hang during build
 - `_has_c_extensions()` heuristic: detects .c/.cpp/.pyx files and ext_modules in setup.py
 - `needs_review` workflow: packages with unfixed AI issues get flagged instead of silently completed
@@ -95,23 +96,22 @@ Matching the auto-fixable analyzer checks above. The escape sequence fixer uses 
   4. Regex rewrites for setup.py, setup.cfg, __init__.py with `__version__ = "..."`
 
 ## Batch Processing Results
-### Top 15,000 (hugovk dataset) + 10,000 deep seed (random PyPI)
-- ~15,200 already compatible
-- ~956 auto-fixed (escape sequences, pkg_resources, etc.)
-- ~1,456 failed — mostly no sdist available or C-extension build issues
-- ~50 needs_review — mostly syntax_error (Python 2 dead code)
-- Server queue: 24,666 total packages (processing ongoing)
-- 0 needs_review (these top packages are well-maintained)
+### 129,821 total packages (top-15k + 115k deep seed)
+- ~67,139 already compatible (fix_method=none)
+- ~7,365 auto-fixed (escape sequences, pkg_resources, etc.)
+- ~9,521 failed — mostly no sdist available or C-extension build issues
+- ~45,795 pending (processing ongoing, ~350/min throughput)
+- 0 needs_review
 
 ## Database
-- SQLite at `~/.lazarus/lazarus.db`
+- SQLite at `~/.lazarus/queue.db`
 - WAL mode, 5s busy timeout
 - Job statuses: pending, in_progress, complete, failed, needs_review
 - Fix methods: none, auto, ai, manual
 
 ## Important Gotchas
 - Background tasks in Claude conversation sandbox die between turns — use real terminal sessions
-- `pip install -e .` hasn't been run yet — user uses `python -m lazarus` instead
+- Server was running old 0.1.0 package until 2026-02-25 — now 1.0.0a1 via `pip install -e .`
 - Version rewrite can accidentally affect build dependency version checks (seen with scikit-build-core)
 - The `re` import in analyzer.py is currently unused (was imported for escape sequence work but state machine approach was used instead)
 
@@ -130,7 +130,7 @@ Matching the auto-fixable analyzer checks above. The escape sequence fixer uses 
 - **devpi index**: `lazarus/packages` (inherits from `root/pypi`)
 - **nginx**: reverse proxy, `/simple/` → devpi `lazarus/packages/+simple/`
 - **Python**: 3.14.3 (deadsnakes PPA) at `/opt/lazarus-venv/`
-- **Lazarus**: installed from `/opt/lazarus/` (git clone of repo)
+- **Lazarus**: 1.0.0a1 installed from `/opt/lazarus/` (git clone, `pip install -e .`)
 
 ## Server Services (systemd)
 - `devpi.service` — devpi-server on 127.0.0.1:3141 (enabled, running)
@@ -150,11 +150,13 @@ ssh -i ~/.ssh/id_ed25519 root@89.167.40.82
 - Install: `pip install --extra-index-url https://lazaruspy.org/simple/ <package>`
 
 ## What's Next (toward 1.0.0a2)
-- ~~Seed larger batch~~ Done: 24,666 packages (top-15k + 10k deep seed)
+- ~~Seed larger batch~~ Done: 129,821 packages (top-15k + 115k deep seed)
 - ~~Add pkg_resources auto-fixer~~ Done: 8th fix type
+- ~~Cache cleanup~~ Done: sdists deleted after processing, prevents disk fill
 - Implement `server/config.py` and `server/deploy.py` for reproducible deployment
 - Add `/status/<package>` API endpoint for verified compatibility checks
 - Add skip/ignore mechanism for acknowledged-but-won't-fix issues
 - Set up monitoring/alerting for server health
 - Consider Cloudflare proxy (orange cloud) after SSL is stable
 - Reduce processor idle churn (currently restarts every 60s even when queue empty)
+- Monitor disk usage as devpi store grows (~0.4MB per fixed package)
