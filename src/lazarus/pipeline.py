@@ -142,6 +142,7 @@ class Pipeline:
             dir=str(self.config.work_dir),
         ))
 
+        sdist_path: Path | None = None
         try:
             # 1. Fetch
             console.print(f"  [dim]Fetching {job.package_name}=={job.version}...[/]")
@@ -273,8 +274,10 @@ class Pipeline:
             result.error = str(e)
             console.print(f"  [red]Error: {e}[/]")
         finally:
-            # Clean up work directory
+            # Clean up work directory and cached sdist
             shutil.rmtree(work_dir, ignore_errors=True)
+            if sdist_path is not None:
+                sdist_path.unlink(missing_ok=True)
 
         return result
 
