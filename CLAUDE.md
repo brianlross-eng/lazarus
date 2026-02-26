@@ -99,14 +99,11 @@ Matching the auto-fixable analyzer checks above. The escape sequence fixer uses 
 - **Build environment**: `PIP_CONSTRAINT=setuptools<82` ensures pkg_resources remains available in isolated build venvs
 
 ## Batch Processing Results
-### 129,821 total packages (top-15k + 115k deep seed)
-- 115,414 complete (88.9%)
-  - 102,771 already compatible (fix_method=none)
-  - 12,643 auto-fixed (escape sequences, pkg_resources, missing build files, etc.)
-- 14,407 failed (11.1%)
-  - ~13,200 no sdist available
-  - ~1,200 other (C extensions, Python 2 code, build system issues)
-- 0 pending
+### Batch 1: 129,821 packages (top-15k + 115k deep seed) — COMPLETE
+- 115,414 complete (88.9%), 12,643 auto-fixed
+- 14,407 failed (~13,200 no sdist, ~1,200 other)
+### Batch 2: +19,232 packages (deep seed) — PROCESSING
+- Total queue: 149,053 packages
 
 ## Database
 - SQLite at `~/.lazarus/queue.db`
@@ -119,6 +116,8 @@ Matching the auto-fixable analyzer checks above. The escape sequence fixer uses 
 - Server was running old 0.1.0 package until 2026-02-25 — now 1.0.0a1 via `pip install -e .`
 - Version rewrite can accidentally affect build dependency version checks (seen with scikit-build-core)
 - The `re` import in analyzer.py is currently unused (was imported for escape sequence work but state machine approach was used instead)
+- **Disk space**: work dir can grow to 20GB+ from OOM kills/crashes — watchdog now auto-cleans orphaned dirs >30min old
+- `cosmowap` package causes OOM kills — manually failed in DB
 
 ## Domain & Infrastructure
 - **Domain**: lazaruspy.org (Cloudflare Registrar)
