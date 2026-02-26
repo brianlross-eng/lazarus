@@ -132,7 +132,7 @@ def rewrite_version_in_source(source_dir: Path, new_version: str) -> list[str]:
 
         # Also rewrite any existing static version = "..." line
         new_content = re.sub(
-            r'(version\s*=\s*["\'])[^"\']+(["\'])',
+            r'(\bversion\s*=\s*["\'])[^"\']+(["\'])',
             rf'\g<1>{new_version}\2',
             new_content,
         )
@@ -146,7 +146,7 @@ def rewrite_version_in_source(source_dir: Path, new_version: str) -> list[str]:
     if setup_cfg.exists():
         content = setup_cfg.read_text(encoding="utf-8", errors="replace")
         new_content = re.sub(
-            r'(version\s*=\s*).+',
+            r'(\bversion\s*=\s*).+',
             rf'\g<1>{new_version}',
             content,
         )
@@ -159,7 +159,7 @@ def rewrite_version_in_source(source_dir: Path, new_version: str) -> list[str]:
     if setup_py.exists():
         content = setup_py.read_text(encoding="utf-8", errors="replace")
         new_content = re.sub(
-            r'(version\s*=\s*["\'])[^"\']+(["\'])',
+            r'(\bversion\s*=\s*["\'])[^"\']+(["\'])',
             rf'\g<1>{new_version}\2',
             content,
         )
@@ -179,7 +179,7 @@ def rewrite_version_in_source(source_dir: Path, new_version: str) -> list[str]:
             continue
         if "__version__" in content:
             new_content = re.sub(
-                r'(__version__\s*=\s*["\'])[^"\']+(["\'])',
+                r'(__version__\s*=\s*["\'])[^"\']+(["\'])(?!\.)',
                 rf'\g<1>{new_version}\2',
                 content,
             )

@@ -141,3 +141,52 @@ class TestRewriteVersionInSource:
         content = pp.read_text()
         assert 'version = "1.0.0.post314"' in content
         assert "dynamic" not in content
+
+    def test_does_not_corrupt_join_version(self, tmp_path) -> None:
+        """__version__ = ".".join(...) must not be rewritten."""
+        source = tmp_path / "src"
+        source.mkdir()
+        pkg_dir = source / "mypkg"
+        pkg_dir.mkdir()
+        init = pkg_dir / "__init__.py"
+        init.write_text(
+            'version_info = (3, 2, 0)\n'
+            '__version__ = ".".join(str(x) for x in version_info)\n'
+        )
+        modified = rewrite_version_in_source(source, "3.2.0.post314")
+        assert str(init) not in modified
+        content = init.read_text()
+        assert '".".join' in content
+
+    def test_does_not_rewrite_minversion_in_setup_cfg(self, tmp_path) -> None:
+        """minversion in setup.cfg must not be rewritten."""
+        cfg = tmp_path / "setup.cfg"
+        cfg.write_text(
+            "[metadata]\n"
+            "version = 1.0.0\n"
+            "\n"
+            "[tool:pytest]\n"
+            "minversion = 6.0\n"
+        )
+        rewrite_version_in_source(tmp_path, "1.0.0.post314")
+        content = cfg.read_text()
+        assert "version = 1.0.0.post314" in content
+        assert "minversion = 6.0" in content
+
+    def test_does_not_rewrite_local_version_in_pyproject(self, tmp_path) -> None:
+        """local_version and fallback_version must not be rewritten."""
+        pp = tmp_path / "pyproject.toml"
+        pp.write_text(
+            '[project]\n'
+            'name = "mypkg"\n'
+            'version = "2.0.0"\n'
+            '\n'
+            '[tool.setuptools_scm]\n'
+            'local_version = "no-local-version"\n'
+            'fallback_version = "0.0.0"\n'
+        )
+        rewrite_version_in_source(tmp_path, "2.0.0.post314")
+        content = pp.read_text()
+        assert 'version = "2.0.0.post314"' in content
+        assert 'local_version = "no-local-version"' in content
+        assert 'fallback_version = "0.0.0"' in content
