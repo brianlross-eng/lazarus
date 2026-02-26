@@ -79,6 +79,11 @@ class AutoFixer:
             "removed_configparser_safeconfigparser": self._fix_configparser_safeconfigparser,
             "removed_configparser_readfp": self._fix_configparser_readfp,
             "python2_print_statement": self._fix_python2_print,
+            "removed_module_distutils": self._fix_distutils_module,
+            "removed_module_imp": self._fix_imp_module,
+            "removed_module_py2_configparser": self._fix_py2_configparser,
+            "removed_module_pipes": self._fix_pipes_module,
+            "removed_module_cgi": self._fix_cgi_module,
         }.get(issue.issue_type)
 
         if handler is None:
@@ -295,6 +300,135 @@ class AutoFixer:
     def _fix_configparser_readfp(self, source: str, issue: CompatIssue) -> str:
         """Replace ConfigParser.readfp() with read_file()."""
         source = re.sub(r'\.readfp\(', '.read_file(', source)
+        return source
+
+    def _fix_distutils_module(self, source: str, issue: CompatIssue) -> str:
+        """Replace distutils imports with setuptools equivalents.
+
+        Handles the common setup.py patterns:
+        - from distutils.core import setup → from setuptools import setup
+        - from distutils.extension import Extension → from setuptools import Extension
+        - from distutils.command.X import Y → from setuptools.command.X import Y
+        """
+        # from distutils.core import ... → from setuptools import ...
+        source = re.sub(
+            r'from\s+distutils\.core\s+import\s+',
+            'from setuptools import ',
+            source,
+        )
+        # from distutils.extension import ... → from setuptools import ...
+        source = re.sub(
+            r'from\s+distutils\.extension\s+import\s+',
+            'from setuptools import ',
+            source,
+        )
+        # from distutils.command.X import Y → from setuptools.command.X import Y
+        source = re.sub(
+            r'from\s+distutils\.command\.',
+            'from setuptools.command.',
+            source,
+        )
+        # import distutils.core → import setuptools
+        source = re.sub(
+            r'\bimport\s+distutils\.core\b',
+            'import setuptools',
+            source,
+        )
+        # distutils.core.setup → setuptools.setup
+        source = re.sub(r'\bdistutils\.core\.setup\b', 'setuptools.setup', source)
+        source = re.sub(r'\bdistutils\.core\.Extension\b', 'setuptools.Extension', source)
+        # Bare import distutils → import setuptools
+        source = re.sub(
+            r'^(\s*)import\s+distutils\s*$',
+            r'\1import setuptools',
+            source,
+            flags=re.MULTILINE,
+        )
+        return source
+
+    def _fix_imp_module(self, source: str, issue: CompatIssue) -> str:
+        """Replace imp module usage with importlib equivalents."""
+        # imp.reload(x) → importlib.reload(x)
+        source = re.sub(r'\bimp\.reload\b', 'importlib.reload', source)
+        # import imp → import importlib
+        source = re.sub(
+            r'^(\s*)import\s+imp\s*$',
+            r'\1import importlib',
+            source,
+            flags=re.MULTILINE,
+        )
+        # from imp import reload → from importlib import reload
+        source = re.sub(
+            r'from\s+imp\s+import\s+reload\b',
+            'from importlib import reload',
+            source,
+        )
+        return source
+
+    def _fix_py2_configparser(self, source: str, issue: CompatIssue) -> str:
+        """Replace Python 2 ConfigParser module with Python 3 configparser."""
+        # import ConfigParser → import configparser as ConfigParser
+        # Using alias preserves all existing references
+        source = re.sub(
+            r'^(\s*)import\s+ConfigParser\s*$',
+            r'\1import configparser as ConfigParser',
+            source,
+            flags=re.MULTILINE,
+        )
+        # from ConfigParser import X → from configparser import X
+        source = re.sub(
+            r'from\s+ConfigParser\s+import\s+',
+            'from configparser import ',
+            source,
+        )
+        return source
+
+    def _fix_pipes_module(self, source: str, issue: CompatIssue) -> str:
+        """Replace pipes module with shlex."""
+        # pipes.quote(x) → shlex.quote(x)
+        source = re.sub(r'\bpipes\.quote\b', 'shlex.quote', source)
+        # import pipes → import shlex
+        source = re.sub(
+            r'^(\s*)import\s+pipes\s*$',
+            r'\1import shlex',
+            source,
+            flags=re.MULTILINE,
+        )
+        # from pipes import quote → from shlex import quote
+        source = re.sub(
+            r'from\s+pipes\s+import\s+quote\b',
+            'from shlex import quote',
+            source,
+        )
+        return source
+
+    def _fix_cgi_module(self, source: str, issue: CompatIssue) -> str:
+        """Replace cgi module with html/urllib.parse equivalents."""
+        # cgi.escape(x) → html.escape(x)
+        source = re.sub(r'\bcgi\.escape\b', 'html.escape', source)
+        # cgi.parse_qs → urllib.parse.parse_qs
+        source = re.sub(r'\bcgi\.parse_qs\b', 'urllib.parse.parse_qs', source)
+        # cgi.parse_qsl → urllib.parse.parse_qsl
+        source = re.sub(r'\bcgi\.parse_qsl\b', 'urllib.parse.parse_qsl', source)
+        # from cgi import escape → from html import escape
+        source = re.sub(
+            r'from\s+cgi\s+import\s+escape\b',
+            'from html import escape',
+            source,
+        )
+        # Replace bare import if all usages have been replaced
+        if re.search(r'^\s*import\s+cgi\s*$', source, re.MULTILINE):
+            remaining = len(re.findall(r'\bcgi\b', source))
+            import_lines = len(re.findall(
+                r'^\s*import\s+cgi\s*$', source, re.MULTILINE
+            ))
+            if remaining <= import_lines:
+                source = re.sub(
+                    r'^(\s*)import\s+cgi\s*$',
+                    r'\1import html',
+                    source,
+                    flags=re.MULTILINE,
+                )
         return source
 
     def _fix_python2_print(self, source: str, issue: CompatIssue) -> str:

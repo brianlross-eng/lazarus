@@ -303,6 +303,69 @@ class TestPython2PrintStatement:
         assert any(i.issue_type == "python2_print_statement" for i in issues)
 
 
+class TestRemovedStdlibModules:
+    def test_detects_import_distutils(self, analyzer: StaticAnalyzer, tmp_py) -> None:
+        f = tmp_py("""\
+            from distutils.core import setup
+            setup(name="foo")
+        """)
+        issues = analyzer.analyze_file(f)
+        dist_issues = [i for i in issues if i.issue_type == "removed_module_distutils"]
+        assert len(dist_issues) == 1
+        assert dist_issues[0].auto_fixable is True
+
+    def test_detects_import_imp(self, analyzer: StaticAnalyzer, tmp_py) -> None:
+        f = tmp_py("""\
+            import imp
+            imp.reload(os)
+        """)
+        issues = analyzer.analyze_file(f)
+        imp_issues = [i for i in issues if i.issue_type == "removed_module_imp"]
+        assert len(imp_issues) == 1
+
+    def test_detects_import_pipes(self, analyzer: StaticAnalyzer, tmp_py) -> None:
+        f = tmp_py("""\
+            import pipes
+            pipes.quote("hello world")
+        """)
+        issues = analyzer.analyze_file(f)
+        pipe_issues = [i for i in issues if i.issue_type == "removed_module_pipes"]
+        assert len(pipe_issues) == 1
+
+    def test_detects_import_cgi(self, analyzer: StaticAnalyzer, tmp_py) -> None:
+        f = tmp_py("""\
+            import cgi
+            cgi.escape("<b>hi</b>")
+        """)
+        issues = analyzer.analyze_file(f)
+        cgi_issues = [i for i in issues if i.issue_type == "removed_module_cgi"]
+        assert len(cgi_issues) == 1
+
+    def test_reports_once_per_module(self, analyzer: StaticAnalyzer, tmp_py) -> None:
+        f = tmp_py("""\
+            import distutils
+            from distutils.core import setup
+        """)
+        issues = analyzer.analyze_file(f)
+        dist_issues = [i for i in issues if i.issue_type == "removed_module_distutils"]
+        assert len(dist_issues) == 1
+
+    def test_detects_py2_configparser(self, analyzer: StaticAnalyzer, tmp_py) -> None:
+        p = tmp_py("x = 1")
+        p.write_text("import ConfigParser\n")
+        issues = analyzer.analyze_file(p)
+        cp_issues = [i for i in issues if i.issue_type == "removed_module_py2_configparser"]
+        assert len(cp_issues) == 1
+
+    def test_ignores_py3_configparser(self, analyzer: StaticAnalyzer, tmp_py) -> None:
+        f = tmp_py("""\
+            import configparser
+        """)
+        issues = analyzer.analyze_file(f)
+        cp_issues = [i for i in issues if i.issue_type == "removed_module_py2_configparser"]
+        assert len(cp_issues) == 0
+
+
 class TestAnalyzeTree:
     def test_scans_directory(self, analyzer: StaticAnalyzer, tmp_path: Path) -> None:
         (tmp_path / "a.py").write_text("import ast\nx = ast.Num\n")

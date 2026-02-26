@@ -407,3 +407,122 @@ class TestAutoFixPython2Print:
         content = f.read_text()
         assert 'print("already function")' in content
         assert 'print("statement")' in content
+
+
+def _make_issue(file_path: str, issue_type: str) -> CompatIssue:
+    """Helper to create a CompatIssue for fixer tests."""
+    return CompatIssue(
+        file_path=file_path,
+        line_number=1,
+        issue_type=issue_type,
+        description="test",
+        severity="error",
+        auto_fixable=True,
+    )
+
+
+class TestAutoFixDistutils:
+    def test_fixes_from_distutils_core(self, tmp_path: Path) -> None:
+        f = _make_file(tmp_path, """\
+            from distutils.core import setup
+            setup(name="foo")
+        """)
+        fixer = AutoFixer()
+        result = fixer.apply_all(tmp_path, [_make_issue(str(f), "removed_module_distutils")])
+
+        assert result.issues_fixed >= 1
+        content = f.read_text()
+        assert "from setuptools import setup" in content
+        assert "distutils" not in content
+
+    def test_fixes_distutils_extension(self, tmp_path: Path) -> None:
+        f = _make_file(tmp_path, """\
+            from distutils.core import setup, Extension
+        """)
+        fixer = AutoFixer()
+        fixer.apply_all(tmp_path, [_make_issue(str(f), "removed_module_distutils")])
+
+        content = f.read_text()
+        assert "from setuptools import setup, Extension" in content
+
+    def test_fixes_distutils_command(self, tmp_path: Path) -> None:
+        f = _make_file(tmp_path, """\
+            from distutils.command.install import install
+        """)
+        fixer = AutoFixer()
+        fixer.apply_all(tmp_path, [_make_issue(str(f), "removed_module_distutils")])
+
+        content = f.read_text()
+        assert "from setuptools.command.install import install" in content
+
+
+class TestAutoFixImp:
+    def test_fixes_imp_reload(self, tmp_path: Path) -> None:
+        f = _make_file(tmp_path, """\
+            import imp
+            imp.reload(os)
+        """)
+        fixer = AutoFixer()
+        result = fixer.apply_all(tmp_path, [_make_issue(str(f), "removed_module_imp")])
+
+        assert result.issues_fixed >= 1
+        content = f.read_text()
+        assert "import importlib" in content
+        assert "importlib.reload(os)" in content
+        assert "import imp\n" not in content
+
+
+class TestAutoFixPy2ConfigParser:
+    def test_fixes_import(self, tmp_path: Path) -> None:
+        f = tmp_path / "module.py"
+        f.write_text("import ConfigParser\nparser = ConfigParser.ConfigParser()\n")
+        fixer = AutoFixer()
+        result = fixer.apply_all(
+            tmp_path, [_make_issue(str(f), "removed_module_py2_configparser")]
+        )
+
+        assert result.issues_fixed >= 1
+        content = f.read_text()
+        assert "import configparser as ConfigParser" in content
+
+    def test_fixes_from_import(self, tmp_path: Path) -> None:
+        f = tmp_path / "module.py"
+        f.write_text("from ConfigParser import SafeConfigParser\n")
+        fixer = AutoFixer()
+        fixer.apply_all(
+            tmp_path, [_make_issue(str(f), "removed_module_py2_configparser")]
+        )
+
+        content = f.read_text()
+        assert "from configparser import SafeConfigParser" in content
+
+
+class TestAutoFixPipes:
+    def test_fixes_pipes_quote(self, tmp_path: Path) -> None:
+        f = _make_file(tmp_path, """\
+            import pipes
+            safe = pipes.quote("hello world")
+        """)
+        fixer = AutoFixer()
+        result = fixer.apply_all(tmp_path, [_make_issue(str(f), "removed_module_pipes")])
+
+        assert result.issues_fixed >= 1
+        content = f.read_text()
+        assert "import shlex" in content
+        assert "shlex.quote" in content
+        assert "pipes" not in content
+
+
+class TestAutoFixCgi:
+    def test_fixes_cgi_escape(self, tmp_path: Path) -> None:
+        f = _make_file(tmp_path, """\
+            import cgi
+            safe = cgi.escape("<b>hi</b>")
+        """)
+        fixer = AutoFixer()
+        result = fixer.apply_all(tmp_path, [_make_issue(str(f), "removed_module_cgi")])
+
+        assert result.issues_fixed >= 1
+        content = f.read_text()
+        assert "html.escape" in content
+        assert "import html" in content

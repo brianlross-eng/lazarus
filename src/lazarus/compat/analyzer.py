@@ -38,6 +38,7 @@ class StaticAnalyzer:
         # Non-AST checks run on raw source text (work even with syntax errors)
         issues.extend(self._check_invalid_escape_sequences(source, path_str))
         issues.extend(self._check_python2_print(source, path_str))
+        issues.extend(self._check_py2_configparser_module(source, path_str))
 
         try:
             tree = ast.parse(source, filename=str(file_path))
@@ -65,6 +66,7 @@ class StaticAnalyzer:
         issues.extend(self._check_pty_removals(tree, path_str))
         issues.extend(self._check_pkg_resources(tree, path_str))
         issues.extend(self._check_configparser_removals(tree, path_str))
+        issues.extend(self._check_removed_stdlib_modules(tree, path_str))
         return issues
 
     def analyze_tree(self, source_dir: Path) -> list[CompatIssue]:
@@ -412,6 +414,93 @@ class StaticAnalyzer:
                     severity="error",
                     auto_fixable=True,
                 ))
+
+        return issues
+
+    def _check_py2_configparser_module(
+        self, source: str, path: str
+    ) -> list[CompatIssue]:
+        """Check for Python 2 ``import ConfigParser`` (capital C).
+
+        Python 3 renamed this to ``configparser`` (lowercase).  Raw-text check
+        so it works even when other Python 2 syntax prevents AST parsing.
+        """
+        issues: list[CompatIssue] = []
+        for lineno, line in enumerate(source.splitlines(), start=1):
+            stripped = line.lstrip()
+            if stripped.startswith("#"):
+                continue
+            if re.match(
+                r"(import\s+ConfigParser|from\s+ConfigParser\s+import)\b",
+                stripped,
+            ):
+                issues.append(CompatIssue(
+                    file_path=path,
+                    line_number=lineno,
+                    issue_type="removed_module_py2_configparser",
+                    description=(
+                        "Python 2 ConfigParser module was renamed to "
+                        "configparser (lowercase) in Python 3."
+                    ),
+                    severity="error",
+                    auto_fixable=True,
+                ))
+                break  # One per file
+        return issues
+
+    def _check_removed_stdlib_modules(
+        self, tree: ast.AST, path: str
+    ) -> list[CompatIssue]:
+        """Check for imports of stdlib modules removed in Python 3.12–3.14."""
+        issues: list[CompatIssue] = []
+        removed = {
+            "distutils": (
+                "removed_module_distutils",
+                "distutils was removed in Python 3.12. Use setuptools instead.",
+            ),
+            "imp": (
+                "removed_module_imp",
+                "The imp module was removed in Python 3.12. Use importlib instead.",
+            ),
+            "pipes": (
+                "removed_module_pipes",
+                "The pipes module was removed in Python 3.13. Use shlex instead.",
+            ),
+            "cgi": (
+                "removed_module_cgi",
+                "The cgi module was removed in Python 3.13. Use html/urllib.parse instead.",
+            ),
+        }
+
+        seen: set[str] = set()
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Import):
+                for alias in node.names:
+                    root = alias.name.split(".")[0]
+                    if root in removed and root not in seen:
+                        issue_type, desc = removed[root]
+                        issues.append(CompatIssue(
+                            file_path=path,
+                            line_number=node.lineno,
+                            issue_type=issue_type,
+                            description=desc,
+                            severity="error",
+                            auto_fixable=True,
+                        ))
+                        seen.add(root)
+            elif isinstance(node, ast.ImportFrom) and node.module:
+                root = node.module.split(".")[0]
+                if root in removed and root not in seen:
+                    issue_type, desc = removed[root]
+                    issues.append(CompatIssue(
+                        file_path=path,
+                        line_number=node.lineno,
+                        issue_type=issue_type,
+                        description=desc,
+                        severity="error",
+                        auto_fixable=True,
+                    ))
+                    seen.add(root)
 
         return issues
 
