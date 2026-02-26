@@ -67,74 +67,70 @@ def _ensure_build_files(source_dir: Path, version: str) -> list[str]:
     Returns list of files created.
     """
     created: list[str] = []
+    config_files = ("setup.py", "setup.cfg", "pyproject.toml")
 
-    # requirements.txt — setup.py does open("requirements.txt").read()
-    # The actual install_requires are in setup.py/pyproject.toml, so an
-    # empty file is safe.
-    for name in ("requirements.txt", "test-requirements.txt",
-                 "requirements-dev.txt", "requirements.in"):
-        p = source_dir / name
-        if not p.exists():
-            # Only create if setup.py/setup.cfg actually references it
-            for cfg_file in ("setup.py", "setup.cfg"):
-                cfg = source_dir / cfg_file
-                if cfg.exists():
-                    try:
-                        text = cfg.read_text(errors="ignore")
-                        if name in text:
-                            p.write_text("")
-                            created.append(name)
-                            break
-                    except OSError:
-                        pass
+    def _is_referenced(filename: str) -> bool:
+        """Check if filename is referenced in any config file."""
+        for cfg_name in config_files:
+            cfg = source_dir / cfg_name
+            if cfg.exists():
+                try:
+                    text = cfg.read_text(errors="ignore")
+                    if filename in text:
+                        return True
+                except OSError:
+                    pass
+        return False
 
-    # README files — setup.py reads for long_description
-    for name in ("README.md", "README.rst", "README.txt", "README",
-                 "readme.md", "Readme.md", "ReadMe.md", "README.MD",
-                 "README.mdown", "README_PIP.md",
-                 "HISTORY.md", "HISTORY.rst",
-                 "CHANGELOG.md", "CHANGELOG.rst"):
+    # requirements files — setup.py/pyproject.toml reads for install_requires.
+    # The actual deps are declared in setup.py/pyproject.toml, so empty is safe.
+    req_files = (
+        "requirements.txt", "test-requirements.txt", "requirements-dev.txt",
+        "requirements.in", "dev-requirements.txt", "requirements-test.txt",
+        "requirements_test.txt", "test_requirements.txt",
+        "requirements-extra.in", "Pipfile.lock",
+    )
+    for name in req_files:
         p = source_dir / name
-        if not p.exists():
-            # Only create if referenced in setup.py/setup.cfg/pyproject.toml
-            for cfg_file in ("setup.py", "setup.cfg", "pyproject.toml"):
-                cfg = source_dir / cfg_file
-                if cfg.exists():
-                    try:
-                        text = cfg.read_text(errors="ignore")
-                        if name in text:
-                            p.write_text("")
-                            created.append(name)
-                            break
-                    except OSError:
-                        pass
+        if not p.exists() and _is_referenced(name):
+            p.write_text("")
+            created.append(name)
+
+    # README / documentation files — setup.py reads for long_description
+    doc_files = (
+        "README.md", "README.rst", "README.txt", "README",
+        "readme.md", "Readme.md", "ReadMe.md", "README.MD",
+        "README.mdown", "README_PIP.md", "DESCRIPTION.rst",
+        "HISTORY.md", "HISTORY.rst",
+        "CHANGELOG.md", "CHANGELOG.rst",
+        "LICENSE", "LICENSE.txt", "LICENSE.md",
+    )
+    for name in doc_files:
+        p = source_dir / name
+        if not p.exists() and _is_referenced(name):
+            p.write_text("")
+            created.append(name)
 
     # VERSION / version.txt — setup.py reads for version string
-    for name in ("VERSION", "version.txt", "version", "new_version.txt"):
+    ver_files = ("VERSION", "VERSION.txt", "version.txt", "version",
+                 "new_version.txt")
+    for name in ver_files:
         p = source_dir / name
-        if not p.exists():
-            for cfg_file in ("setup.py", "setup.cfg", "pyproject.toml"):
-                cfg = source_dir / cfg_file
-                if cfg.exists():
-                    try:
-                        text = cfg.read_text(errors="ignore")
-                        if name in text:
-                            p.write_text(version)
-                            created.append(name)
-                            break
-                    except OSError:
-                        pass
+        if not p.exists() and _is_referenced(name):
+            p.write_text(version)
+            created.append(name)
 
-    # Also check subdirectories for base.txt, prod.txt (requirements includes)
-    for name in ("base.txt", "prod.txt"):
-        # These are typically in a requirements/ subdirectory
-        for sub in ("requirements", "reqs"):
-            d = source_dir / sub
-            if d.is_dir():
+    # Subdirectory requirement files (base.txt, prod.txt in requirements/)
+    for sub in ("requirements", "reqs"):
+        d = source_dir / sub
+        if d.is_dir():
+            for name in ("base.txt", "prod.txt", "common.txt"):
                 p = d / name
                 if not p.exists():
-                    p.write_text("")
-                    created.append(f"{sub}/{name}")
+                    # Check if parent dir is referenced in configs
+                    if _is_referenced(f"{sub}/{name}") or _is_referenced(sub):
+                        p.write_text("")
+                        created.append(f"{sub}/{name}")
 
     return created
 
