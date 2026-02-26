@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 
@@ -18,6 +19,9 @@ class PackageBuilder:
     Supports SETUPTOOLS_SCM_PRETEND_VERSION to override git-tag-based
     versions for packages using setuptools_scm (zipp, importlib_metadata,
     etc.), ensuring the .post314 suffix appears in built filenames.
+
+    Constrains setuptools<82 in build environments because setuptools 82+
+    removed pkg_resources, which many packages still import at build time.
     """
 
     def _build_env(self, version: str | None = None) -> dict[str, str]:
@@ -26,11 +30,25 @@ class PackageBuilder:
         If *version* is given, sets SETUPTOOLS_SCM_PRETEND_VERSION so that
         packages using dynamic version (setuptools_scm) produce dists with
         the correct Lazarus version number.
+
+        Also sets PIP_CONSTRAINT to pin setuptools<82 so that pkg_resources
+        remains available in isolated build environments.
         """
         env = os.environ.copy()
         if version:
             env["SETUPTOOLS_SCM_PRETEND_VERSION"] = version
+        # Ensure the constraints file exists
+        env["PIP_CONSTRAINT"] = str(self._constraints_file())
         return env
+
+    def _constraints_file(self) -> Path:
+        """Return path to a pip constraints file pinning setuptools<82."""
+        constraints_dir = Path(tempfile.gettempdir()) / "lazarus"
+        constraints_dir.mkdir(exist_ok=True)
+        constraints_path = constraints_dir / "build-constraints.txt"
+        if not constraints_path.exists():
+            constraints_path.write_text("setuptools<82\n")
+        return constraints_path
 
     def build_sdist(
         self, source_dir: Path, output_dir: Path, *, version: str | None = None,
