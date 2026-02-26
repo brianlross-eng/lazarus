@@ -8,6 +8,7 @@ processing.  Also keeps a log so you can see what happened while you were away.
 from __future__ import annotations
 
 import logging
+import shutil
 import signal
 import subprocess
 import sys
@@ -189,6 +190,45 @@ class Watchdog:
                         f"Processor started (PID {self._processor.pid})"
                     )
 
+    def _cleanup_work_dir(self) -> None:
+        """Remove orphaned work directories older than 30 minutes.
+
+        Work dirs are created per-job and cleaned in the pipeline's finally
+        block, but OOM kills or hard crashes skip cleanup.  This catches
+        the leftovers.
+        """
+        work_dir = self.config.work_dir
+        if not work_dir.is_dir():
+            return
+
+        cutoff = time.time() - 1800  # 30 minutes
+        removed = 0
+        for entry in work_dir.iterdir():
+            if not entry.is_dir():
+                continue
+            try:
+                mtime = entry.stat().st_mtime
+                if mtime < cutoff:
+                    shutil.rmtree(entry, ignore_errors=True)
+                    removed += 1
+            except OSError:
+                pass
+
+        # Also clean stale cached sdists (older than 1 hour)
+        cache_dir = self.config.cache_dir
+        if cache_dir.is_dir():
+            cache_cutoff = time.time() - 3600
+            for entry in cache_dir.iterdir():
+                try:
+                    if entry.stat().st_mtime < cache_cutoff:
+                        entry.unlink(missing_ok=True)
+                        removed += 1
+                except OSError:
+                    pass
+
+        if removed:
+            logger.info(f"Cleaned up {removed} orphaned work/cache entries")
+
     def _log_status(self, queue: JobQueue) -> None:
         """Log current queue stats."""
         stats = queue.get_status()
@@ -217,6 +257,7 @@ class Watchdog:
                     self._log_status(queue)
                     self._check_stale_jobs(queue)
                     self._check_processor()
+                    self._cleanup_work_dir()
                 except Exception as e:
                     logger.error(f"Watchdog check failed: {e}")
 
