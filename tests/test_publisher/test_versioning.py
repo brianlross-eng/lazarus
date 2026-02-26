@@ -154,6 +154,35 @@ class TestRewriteVersionInSource:
         assert 'version = "1.0.0.post314"' in content
         assert "dynamic" not in content
 
+    def test_dynamic_version_not_first_item(self, tmp_path) -> None:
+        """version as non-first item in dynamic list (urwid-style)."""
+        pp = tmp_path / "pyproject.toml"
+        pp.write_text(
+            '[project]\n'
+            'name = "urwid"\n'
+            'dynamic = ["classifiers", "version", "dependencies"]\n'
+        )
+        modified = rewrite_version_in_source(tmp_path, "3.0.5.post314")
+        content = pp.read_text()
+        assert 'version = "3.0.5.post314"' in content
+        assert '"version"' not in content
+        assert '"classifiers"' in content
+        assert '"dependencies"' in content
+
+    def test_dynamic_version_last_item(self, tmp_path) -> None:
+        """version as last item in dynamic list."""
+        pp = tmp_path / "pyproject.toml"
+        pp.write_text(
+            '[project]\n'
+            'name = "mypkg"\n'
+            'dynamic = ["description", "version"]\n'
+        )
+        modified = rewrite_version_in_source(tmp_path, "1.0.0.post314")
+        content = pp.read_text()
+        assert 'version = "1.0.0.post314"' in content
+        assert '"version"' not in content
+        assert '"description"' in content
+
     def test_does_not_corrupt_join_version(self, tmp_path) -> None:
         """__version__ = ".".join(...) must not be rewritten."""
         source = tmp_path / "src"

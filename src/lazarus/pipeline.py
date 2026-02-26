@@ -57,6 +57,88 @@ SKIP_BUILD_PACKAGES = frozenset({
 })
 
 
+def _ensure_build_files(source_dir: Path, version: str) -> list[str]:
+    """Create commonly missing files that setup.py expects at build time.
+
+    Many sdists reference requirements.txt, README, or VERSION in their
+    setup.py but don't include those files.  Creating empty/minimal stubs
+    prevents FileNotFoundError during ``python -m build``.
+
+    Returns list of files created.
+    """
+    created: list[str] = []
+
+    # requirements.txt — setup.py does open("requirements.txt").read()
+    # The actual install_requires are in setup.py/pyproject.toml, so an
+    # empty file is safe.
+    for name in ("requirements.txt", "test-requirements.txt",
+                 "requirements-dev.txt", "requirements.in"):
+        p = source_dir / name
+        if not p.exists():
+            # Only create if setup.py/setup.cfg actually references it
+            for cfg_file in ("setup.py", "setup.cfg"):
+                cfg = source_dir / cfg_file
+                if cfg.exists():
+                    try:
+                        text = cfg.read_text(errors="ignore")
+                        if name in text:
+                            p.write_text("")
+                            created.append(name)
+                            break
+                    except OSError:
+                        pass
+
+    # README files — setup.py reads for long_description
+    for name in ("README.md", "README.rst", "README.txt", "README",
+                 "readme.md", "Readme.md", "ReadMe.md", "README.MD",
+                 "README.mdown", "README_PIP.md",
+                 "HISTORY.md", "HISTORY.rst",
+                 "CHANGELOG.md", "CHANGELOG.rst"):
+        p = source_dir / name
+        if not p.exists():
+            # Only create if referenced in setup.py/setup.cfg/pyproject.toml
+            for cfg_file in ("setup.py", "setup.cfg", "pyproject.toml"):
+                cfg = source_dir / cfg_file
+                if cfg.exists():
+                    try:
+                        text = cfg.read_text(errors="ignore")
+                        if name in text:
+                            p.write_text("")
+                            created.append(name)
+                            break
+                    except OSError:
+                        pass
+
+    # VERSION / version.txt — setup.py reads for version string
+    for name in ("VERSION", "version.txt", "version", "new_version.txt"):
+        p = source_dir / name
+        if not p.exists():
+            for cfg_file in ("setup.py", "setup.cfg", "pyproject.toml"):
+                cfg = source_dir / cfg_file
+                if cfg.exists():
+                    try:
+                        text = cfg.read_text(errors="ignore")
+                        if name in text:
+                            p.write_text(version)
+                            created.append(name)
+                            break
+                    except OSError:
+                        pass
+
+    # Also check subdirectories for base.txt, prod.txt (requirements includes)
+    for name in ("base.txt", "prod.txt"):
+        # These are typically in a requirements/ subdirectory
+        for sub in ("requirements", "reqs"):
+            d = source_dir / sub
+            if d.is_dir():
+                p = d / name
+                if not p.exists():
+                    p.write_text("")
+                    created.append(f"{sub}/{name}")
+
+    return created
+
+
 def _has_c_extensions(source_dir: Path) -> bool:
     """Heuristic: check if a package has C/Cython extensions."""
     for pattern in ("*.c", "*.cpp", "*.pyx", "*.pxd"):
@@ -238,6 +320,14 @@ class Pipeline:
                 python_target = job.python_target.replace(".", "")
                 new_ver = lazarus_version(job.version, python_target)
                 rewrite_version_in_source(source_dir, new_ver)
+
+                # Create any missing files that setup.py expects
+                created = _ensure_build_files(source_dir, new_ver)
+                if created:
+                    console.print(
+                        f"  [dim]Created missing build files: "
+                        f"{', '.join(created)}[/]"
+                    )
 
                 console.print(f"  [dim]Building {new_ver}...[/]")
                 output_dir = work_dir / "dist"

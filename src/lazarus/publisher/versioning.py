@@ -117,23 +117,36 @@ def rewrite_version_in_source(source_dir: Path, new_version: str) -> list[str]:
         # If version is in the dynamic list, remove it and set statically.
         # This forces all PEP 517 build backends (flit, setuptools_scm,
         # hatchling, etc.) to use our version instead of computing one.
-        if re.search(r'dynamic\s*=\s*\[.*"version"', new_content):
-            # Remove "version" from dynamic list (may also contain "description")
+        dynamic_match = re.search(
+            r'dynamic\s*=\s*\[([^\]]*)\]', new_content, re.DOTALL,
+        )
+        if dynamic_match and '"version"' in dynamic_match.group(1):
+            # Remove "version" from dynamic list — handle any position.
+            # Replace just the dynamic list portion using a function.
+            def _remove_version_from_dynamic(m: re.Match) -> str:
+                items = m.group(1)
+                # Remove "version" entry (with surrounding comma/whitespace)
+                items = re.sub(r'\s*"version"\s*,\s*', ' ', items)
+                items = re.sub(r',\s*"version"\s*', '', items)
+                items = re.sub(r'\s*"version"\s*', '', items)
+                return f"dynamic = [{items.strip()}]"
+
             new_content = re.sub(
-                r'(dynamic\s*=\s*\[)\s*"version"\s*,?\s*',
-                r'\1',
+                r'dynamic\s*=\s*\[([^\]]*)\]',
+                _remove_version_from_dynamic,
                 new_content,
+                flags=re.DOTALL,
             )
-            # Clean up trailing comma before closing bracket
-            new_content = re.sub(r',\s*\]', ']', new_content)
             # Clean up empty dynamic list: dynamic = [] → remove entirely
             new_content = re.sub(r'dynamic\s*=\s*\[\s*\]\n?', '', new_content)
             # Add static version after name field in [project] section
-            new_content = re.sub(
-                r'(name\s*=\s*"[^"]+"\s*\n)',
-                rf'\1version = "{new_version}"\n',
-                new_content,
-            )
+            # (only if no version = "..." already exists in [project])
+            if not re.search(r'^\s*version\s*=\s*["\']', new_content, re.MULTILINE):
+                new_content = re.sub(
+                    r'(name\s*=\s*"[^"]+"\s*\n)',
+                    rf'\1version = "{new_version}"\n',
+                    new_content,
+                )
 
         # Also rewrite any existing static version = "..." line
         # (?!\.) prevents matching "." in ".".join() expressions
