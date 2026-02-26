@@ -254,6 +254,17 @@ class TestConfigparserSafeConfigParser:
         issues = analyzer.analyze_file(f)
         assert len(issues) == 0
 
+    def test_detects_readfp(self, analyzer: StaticAnalyzer, tmp_py) -> None:
+        f = tmp_py("""\
+            import configparser
+            parser = configparser.ConfigParser()
+            parser.readfp(open("config.ini"))
+        """)
+        issues = analyzer.analyze_file(f)
+        readfp_issues = [i for i in issues if i.issue_type == "removed_configparser_readfp"]
+        assert len(readfp_issues) == 1
+        assert readfp_issues[0].auto_fixable is True
+
 
 class TestAnalyzeTree:
     def test_scans_directory(self, analyzer: StaticAnalyzer, tmp_path: Path) -> None:

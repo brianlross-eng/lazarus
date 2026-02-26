@@ -302,3 +302,19 @@ class TestAutoFixConfigparserSafeConfigParser:
         assert "SafeConfigParser" not in content
         assert "from configparser import ConfigParser" in content
         assert "ConfigParser()" in content
+
+    def test_fixes_readfp(self, tmp_path: Path) -> None:
+        f = _make_file(tmp_path, """\
+            import configparser
+            parser = configparser.ConfigParser()
+            parser.readfp(open("config.ini"))
+        """)
+        analyzer = StaticAnalyzer()
+        issues = analyzer.analyze_file(f)
+        fixer = AutoFixer()
+        result = fixer.apply_all(tmp_path, issues)
+
+        assert result.issues_fixed >= 1
+        content = f.read_text()
+        assert "readfp" not in content
+        assert "read_file" in content

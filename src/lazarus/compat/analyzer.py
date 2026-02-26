@@ -56,7 +56,7 @@ class StaticAnalyzer:
         issues.extend(self._check_pathlib_extra_args(tree, path_str))
         issues.extend(self._check_pty_removals(tree, path_str))
         issues.extend(self._check_pkg_resources(tree, path_str))
-        issues.extend(self._check_configparser_safeconfigparser(tree, path_str))
+        issues.extend(self._check_configparser_removals(tree, path_str))
         # Non-AST checks (operate on raw source text)
         issues.extend(self._check_invalid_escape_sequences(source, path_str))
         return issues
@@ -364,13 +364,14 @@ class StaticAnalyzer:
 
         return issues
 
-    def _check_configparser_safeconfigparser(
+    def _check_configparser_removals(
         self, tree: ast.AST, path: str
     ) -> list[CompatIssue]:
-        """Check for configparser.SafeConfigParser (removed in 3.13)."""
+        """Check for configparser removals (SafeConfigParser, readfp)."""
         issues: list[CompatIssue] = []
 
         for node in ast.walk(tree):
+            # SafeConfigParser class (removed in 3.13)
             if isinstance(node, ast.Attribute) and node.attr == "SafeConfigParser":
                 if isinstance(node.value, ast.Name) and node.value.id == "configparser":
                     issues.append(CompatIssue(
@@ -392,6 +393,19 @@ class StaticAnalyzer:
                             severity="error",
                             auto_fixable=True,
                         ))
+
+            # readfp() method (removed in 3.13)
+            if (isinstance(node, ast.Call)
+                    and isinstance(node.func, ast.Attribute)
+                    and node.func.attr == "readfp"):
+                issues.append(CompatIssue(
+                    file_path=path,
+                    line_number=node.lineno,
+                    issue_type="removed_configparser_readfp",
+                    description="ConfigParser.readfp() was removed in 3.13. Use read_file() instead.",
+                    severity="error",
+                    auto_fixable=True,
+                ))
 
         return issues
 

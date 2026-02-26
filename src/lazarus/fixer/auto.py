@@ -77,6 +77,7 @@ class AutoFixer:
             "invalid_escape_sequence": self._fix_invalid_escape_sequences,
             "deprecated_pkg_resources": self._fix_pkg_resources,
             "removed_configparser_safeconfigparser": self._fix_configparser_safeconfigparser,
+            "removed_configparser_readfp": self._fix_configparser_readfp,
         }.get(issue.issue_type)
 
         if handler is None:
@@ -288,6 +289,11 @@ class AutoFixer:
         # Fix any bare references after `from configparser import SafeConfigParser`
         # e.g. `parser = SafeConfigParser()` → `parser = ConfigParser()`
         source = re.sub(r'\bSafeConfigParser\b', 'ConfigParser', source)
+        return source
+
+    def _fix_configparser_readfp(self, source: str, issue: CompatIssue) -> str:
+        """Replace ConfigParser.readfp() with read_file()."""
+        source = re.sub(r'\.readfp\(', '.read_file(', source)
         return source
 
     def _fix_invalid_escape_sequences(self, source: str, issue: CompatIssue) -> str:
