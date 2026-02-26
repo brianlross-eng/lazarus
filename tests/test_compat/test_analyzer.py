@@ -226,6 +226,35 @@ class TestInvalidEscapeSequences:
         assert len(escape_issues) == 1
 
 
+class TestConfigparserSafeConfigParser:
+    def test_detects_attribute_access(self, analyzer: StaticAnalyzer, tmp_py) -> None:
+        f = tmp_py("""\
+            import configparser
+            parser = configparser.SafeConfigParser()
+        """)
+        issues = analyzer.analyze_file(f)
+        assert len(issues) == 1
+        assert issues[0].issue_type == "removed_configparser_safeconfigparser"
+        assert issues[0].auto_fixable is True
+
+    def test_detects_from_import(self, analyzer: StaticAnalyzer, tmp_py) -> None:
+        f = tmp_py("""\
+            from configparser import SafeConfigParser
+            parser = SafeConfigParser()
+        """)
+        issues = analyzer.analyze_file(f)
+        assert len(issues) == 1
+        assert issues[0].issue_type == "removed_configparser_safeconfigparser"
+
+    def test_ignores_configparser(self, analyzer: StaticAnalyzer, tmp_py) -> None:
+        f = tmp_py("""\
+            import configparser
+            parser = configparser.ConfigParser()
+        """)
+        issues = analyzer.analyze_file(f)
+        assert len(issues) == 0
+
+
 class TestAnalyzeTree:
     def test_scans_directory(self, analyzer: StaticAnalyzer, tmp_path: Path) -> None:
         (tmp_path / "a.py").write_text("import ast\nx = ast.Num\n")

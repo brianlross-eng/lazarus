@@ -269,3 +269,36 @@ class TestAutoFixPkgResources:
         content = f.read_text()
         assert "pkg_resources" not in content
         assert "_pkg_files" in content
+
+
+class TestAutoFixConfigparserSafeConfigParser:
+    def test_fixes_attribute_access(self, tmp_path: Path) -> None:
+        f = _make_file(tmp_path, """\
+            import configparser
+            parser = configparser.SafeConfigParser()
+        """)
+        analyzer = StaticAnalyzer()
+        issues = analyzer.analyze_file(f)
+        fixer = AutoFixer()
+        result = fixer.apply_all(tmp_path, issues)
+
+        assert result.issues_fixed >= 1
+        content = f.read_text()
+        assert "SafeConfigParser" not in content
+        assert "configparser.ConfigParser()" in content
+
+    def test_fixes_from_import(self, tmp_path: Path) -> None:
+        f = _make_file(tmp_path, """\
+            from configparser import SafeConfigParser
+            parser = SafeConfigParser()
+        """)
+        analyzer = StaticAnalyzer()
+        issues = analyzer.analyze_file(f)
+        fixer = AutoFixer()
+        result = fixer.apply_all(tmp_path, issues)
+
+        assert result.issues_fixed >= 1
+        content = f.read_text()
+        assert "SafeConfigParser" not in content
+        assert "from configparser import ConfigParser" in content
+        assert "ConfigParser()" in content

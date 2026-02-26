@@ -56,6 +56,7 @@ class StaticAnalyzer:
         issues.extend(self._check_pathlib_extra_args(tree, path_str))
         issues.extend(self._check_pty_removals(tree, path_str))
         issues.extend(self._check_pkg_resources(tree, path_str))
+        issues.extend(self._check_configparser_safeconfigparser(tree, path_str))
         # Non-AST checks (operate on raw source text)
         issues.extend(self._check_invalid_escape_sequences(source, path_str))
         return issues
@@ -360,6 +361,37 @@ class StaticAnalyzer:
                         severity="error",
                         auto_fixable=True,
                     ))
+
+        return issues
+
+    def _check_configparser_safeconfigparser(
+        self, tree: ast.AST, path: str
+    ) -> list[CompatIssue]:
+        """Check for configparser.SafeConfigParser (removed in 3.13)."""
+        issues: list[CompatIssue] = []
+
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Attribute) and node.attr == "SafeConfigParser":
+                if isinstance(node.value, ast.Name) and node.value.id == "configparser":
+                    issues.append(CompatIssue(
+                        file_path=path,
+                        line_number=node.lineno,
+                        issue_type="removed_configparser_safeconfigparser",
+                        description="configparser.SafeConfigParser was removed in 3.13. Use configparser.ConfigParser instead.",
+                        severity="error",
+                        auto_fixable=True,
+                    ))
+            if isinstance(node, ast.ImportFrom) and node.module == "configparser":
+                for alias in node.names:
+                    if alias.name == "SafeConfigParser":
+                        issues.append(CompatIssue(
+                            file_path=path,
+                            line_number=node.lineno,
+                            issue_type="removed_configparser_safeconfigparser",
+                            description="configparser.SafeConfigParser was removed in 3.13. Use configparser.ConfigParser instead.",
+                            severity="error",
+                            auto_fixable=True,
+                        ))
 
         return issues
 

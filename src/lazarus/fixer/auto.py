@@ -76,6 +76,7 @@ class AutoFixer:
             "removed_importlib_abc": self._fix_importlib_abc,
             "invalid_escape_sequence": self._fix_invalid_escape_sequences,
             "deprecated_pkg_resources": self._fix_pkg_resources,
+            "removed_configparser_safeconfigparser": self._fix_configparser_safeconfigparser,
         }.get(issue.issue_type)
 
         if handler is None:
@@ -271,6 +272,23 @@ class AutoFixer:
                 insert_idx = i + 1
         lines.insert(insert_idx, import_line)
         return '\n'.join(lines)
+
+    def _fix_configparser_safeconfigparser(self, source: str, issue: CompatIssue) -> str:
+        """Replace configparser.SafeConfigParser with ConfigParser."""
+        source = re.sub(
+            r'\bconfigparser\.SafeConfigParser\b',
+            'configparser.ConfigParser',
+            source,
+        )
+        source = re.sub(
+            r'from configparser import SafeConfigParser\b',
+            'from configparser import ConfigParser',
+            source,
+        )
+        # Fix any bare references after `from configparser import SafeConfigParser`
+        # e.g. `parser = SafeConfigParser()` → `parser = ConfigParser()`
+        source = re.sub(r'\bSafeConfigParser\b', 'ConfigParser', source)
+        return source
 
     def _fix_invalid_escape_sequences(self, source: str, issue: CompatIssue) -> str:
         r"""Fix invalid escape sequences by doubling unrecognized backslash escapes.
