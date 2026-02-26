@@ -26,14 +26,19 @@ def lazarus_version(
     Returns:
         PEP 440 compliant version (e.g., "2.31.0.post314").
     """
-    # Validate the original version
-    Version(original)  # Raises InvalidVersion if bad
+    # Validate and parse the original version
+    v = Version(original)
 
     post_num = int(python_target)
     if revision > 0:
         post_num = int(f"{python_target}{revision}")
 
-    return f"{original}.post{post_num}"
+    # Strip existing .post/.dev suffixes — PEP 440 only allows one .post
+    base = ".".join(str(x) for x in v.release)
+    if v.pre is not None:
+        base += "".join(str(x) for x in v.pre)
+
+    return f"{base}.post{post_num}"
 
 
 def parse_lazarus_version(version_str: str) -> tuple[str, str, int]:

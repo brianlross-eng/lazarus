@@ -25,6 +25,18 @@ class TestLazarusVersion:
         with pytest.raises(Exception):
             lazarus_version("not-a-version")
 
+    def test_strips_existing_post(self) -> None:
+        assert lazarus_version("0.1.8.post2") == "0.1.8.post314"
+
+    def test_strips_existing_dev(self) -> None:
+        assert lazarus_version("0.1.0.dev20220129") == "0.1.0.post314"
+
+    def test_preserves_pre_release(self) -> None:
+        assert lazarus_version("1.0.0a1") == "1.0.0a1.post314"
+
+    def test_four_segment_release(self) -> None:
+        assert lazarus_version("3.46.0.6.post1") == "3.46.0.6.post314"
+
 
 class TestParseLazarusVersion:
     def test_basic_parse(self) -> None:
