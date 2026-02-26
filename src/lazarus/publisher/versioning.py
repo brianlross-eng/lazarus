@@ -136,8 +136,9 @@ def rewrite_version_in_source(source_dir: Path, new_version: str) -> list[str]:
             )
 
         # Also rewrite any existing static version = "..." line
+        # (?!\.) prevents matching "." in ".".join() expressions
         new_content = re.sub(
-            r'(\bversion\s*=\s*["\'])[^"\']+(["\'])',
+            r'(\bversion\s*=\s*["\'])[^"\']+(["\'])(?!\.)',
             rf'\g<1>{new_version}\2',
             new_content,
         )
@@ -163,8 +164,9 @@ def rewrite_version_in_source(source_dir: Path, new_version: str) -> list[str]:
     setup_py = source_dir / "setup.py"
     if setup_py.exists():
         content = setup_py.read_text(encoding="utf-8", errors="replace")
+        # (?!\.) prevents matching "." in ".".join() expressions
         new_content = re.sub(
-            r'(\bversion\s*=\s*["\'])[^"\']+(["\'])',
+            r'(\bversion\s*=\s*["\'])[^"\']+(["\'])(?!\.)',
             rf'\g<1>{new_version}\2',
             content,
         )
