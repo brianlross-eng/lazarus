@@ -36,7 +36,7 @@ class AutoFixer:
         for file_path, file_issues in by_file.items():
             path = Path(file_path)
             try:
-                source = path.read_text(encoding="utf-8")
+                source = path.read_text(encoding="utf-8", errors="replace")
             except OSError as e:
                 result.errors.append(f"Cannot read {file_path}: {e}")
                 continue

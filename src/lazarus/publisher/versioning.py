@@ -92,7 +92,7 @@ def rewrite_version_in_source(source_dir: Path, new_version: str) -> list[str]:
     # uses git tags, hatchling uses VCS).
     pkg_info = source_dir / "PKG-INFO"
     if pkg_info.exists():
-        content = pkg_info.read_text(encoding="utf-8")
+        content = pkg_info.read_text(encoding="utf-8", errors="replace")
         new_content = re.sub(
             r"(^Version:\s*).+$",
             rf"\g<1>{new_version}",
@@ -106,7 +106,7 @@ def rewrite_version_in_source(source_dir: Path, new_version: str) -> list[str]:
     # pyproject.toml
     pyproject = source_dir / "pyproject.toml"
     if pyproject.exists():
-        content = pyproject.read_text(encoding="utf-8")
+        content = pyproject.read_text(encoding="utf-8", errors="replace")
         new_content = content
 
         # If version is in the dynamic list, remove it and set statically.
@@ -144,7 +144,7 @@ def rewrite_version_in_source(source_dir: Path, new_version: str) -> list[str]:
     # setup.cfg
     setup_cfg = source_dir / "setup.cfg"
     if setup_cfg.exists():
-        content = setup_cfg.read_text(encoding="utf-8")
+        content = setup_cfg.read_text(encoding="utf-8", errors="replace")
         new_content = re.sub(
             r'(version\s*=\s*).+',
             rf'\g<1>{new_version}',
@@ -157,7 +157,7 @@ def rewrite_version_in_source(source_dir: Path, new_version: str) -> list[str]:
     # setup.py
     setup_py = source_dir / "setup.py"
     if setup_py.exists():
-        content = setup_py.read_text(encoding="utf-8")
+        content = setup_py.read_text(encoding="utf-8", errors="replace")
         new_content = re.sub(
             r'(version\s*=\s*["\'])[^"\']+(["\'])',
             rf'\g<1>{new_version}\2',
@@ -174,7 +174,7 @@ def rewrite_version_in_source(source_dir: Path, new_version: str) -> list[str]:
         if any(p.startswith("test") for p in rel.parts):
             continue
         try:
-            content = init_file.read_text(encoding="utf-8")
+            content = init_file.read_text(encoding="utf-8", errors="replace")
         except OSError:
             continue
         if "__version__" in content:
