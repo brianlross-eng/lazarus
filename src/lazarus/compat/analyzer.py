@@ -32,20 +32,28 @@ class StaticAnalyzer:
         except (OSError, UnicodeDecodeError):
             return []
 
+        path_str = str(file_path)
+        issues: list[CompatIssue] = []
+
+        # Non-AST checks run on raw source text (work even with syntax errors)
+        issues.extend(self._check_invalid_escape_sequences(source, path_str))
+        issues.extend(self._check_python2_print(source, path_str))
+
         try:
             tree = ast.parse(source, filename=str(file_path))
         except SyntaxError:
-            return [CompatIssue(
-                file_path=str(file_path),
-                line_number=0,
-                issue_type="syntax_error",
-                description="File has syntax errors and cannot be parsed",
-                severity="error",
-                auto_fixable=True,
-            )]
+            if not issues:
+                issues.append(CompatIssue(
+                    file_path=path_str,
+                    line_number=0,
+                    issue_type="syntax_error",
+                    description="File has syntax errors and cannot be parsed",
+                    severity="error",
+                    auto_fixable=False,
+                ))
+            return issues
 
-        path_str = str(file_path)
-        issues: list[CompatIssue] = []
+        # AST-based checks
         issues.extend(self._check_deprecated_ast_nodes(tree, path_str))
         issues.extend(self._check_asyncio_child_watchers(tree, path_str))
         issues.extend(self._check_pkgutil_loaders(tree, path_str))
@@ -57,8 +65,6 @@ class StaticAnalyzer:
         issues.extend(self._check_pty_removals(tree, path_str))
         issues.extend(self._check_pkg_resources(tree, path_str))
         issues.extend(self._check_configparser_removals(tree, path_str))
-        # Non-AST checks (operate on raw source text)
-        issues.extend(self._check_invalid_escape_sequences(source, path_str))
         return issues
 
     def analyze_tree(self, source_dir: Path) -> list[CompatIssue]:
@@ -407,6 +413,39 @@ class StaticAnalyzer:
                     auto_fixable=True,
                 ))
 
+        return issues
+
+    def _check_python2_print(
+        self, source: str, path: str
+    ) -> list[CompatIssue]:
+        """Check for Python 2-style print statements (not function calls).
+
+        Detects patterns like ``print "hello"`` or ``print >>sys.stderr, msg``
+        that cause SyntaxError in Python 3.  Reports once per file since the
+        fixer converts all occurrences in a single pass.
+        """
+        issues: list[CompatIssue] = []
+        for lineno, line in enumerate(source.splitlines(), start=1):
+            stripped = line.lstrip()
+            if stripped.startswith("#"):
+                continue
+            # print followed by space and NOT ( or = → likely print statement
+            # Also catches print >> (redirect)
+            if re.match(r"print\s+(?![=(])", stripped) or re.match(
+                r"print\s*>>", stripped
+            ):
+                issues.append(CompatIssue(
+                    file_path=path,
+                    line_number=lineno,
+                    issue_type="python2_print_statement",
+                    description=(
+                        "Python 2-style print statement. "
+                        "Use print() function instead."
+                    ),
+                    severity="error",
+                    auto_fixable=True,
+                ))
+                break  # One issue per file is sufficient
         return issues
 
     def _check_invalid_escape_sequences(

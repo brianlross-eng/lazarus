@@ -318,3 +318,92 @@ class TestAutoFixConfigparserSafeConfigParser:
         content = f.read_text()
         assert "readfp" not in content
         assert "read_file" in content
+
+
+class TestAutoFixPython2Print:
+    def test_fixes_print_string(self, tmp_path: Path) -> None:
+        f = tmp_path / "module.py"
+        f.write_text('print "hello"\n')
+        issue = CompatIssue(
+            file_path=str(f),
+            line_number=1,
+            issue_type="python2_print_statement",
+            description="Python 2 print",
+            severity="error",
+            auto_fixable=True,
+        )
+        fixer = AutoFixer()
+        result = fixer.apply_all(tmp_path, [issue])
+
+        assert result.issues_fixed >= 1
+        content = f.read_text()
+        assert 'print("hello")' in content
+
+    def test_fixes_print_multiple_args(self, tmp_path: Path) -> None:
+        f = tmp_path / "module.py"
+        f.write_text('print "a", "b", "c"\n')
+        issue = CompatIssue(
+            file_path=str(f),
+            line_number=1,
+            issue_type="python2_print_statement",
+            description="Python 2 print",
+            severity="error",
+            auto_fixable=True,
+        )
+        fixer = AutoFixer()
+        result = fixer.apply_all(tmp_path, [issue])
+
+        content = f.read_text()
+        assert 'print("a", "b", "c")' in content
+
+    def test_fixes_trailing_comma(self, tmp_path: Path) -> None:
+        f = tmp_path / "module.py"
+        f.write_text('print "hello",\n')
+        issue = CompatIssue(
+            file_path=str(f),
+            line_number=1,
+            issue_type="python2_print_statement",
+            description="Python 2 print",
+            severity="error",
+            auto_fixable=True,
+        )
+        fixer = AutoFixer()
+        fixer.apply_all(tmp_path, [issue])
+
+        content = f.read_text()
+        assert 'print("hello", end=" ")' in content
+
+    def test_fixes_redirect(self, tmp_path: Path) -> None:
+        f = tmp_path / "module.py"
+        f.write_text('print >>sys.stderr, "error"\n')
+        issue = CompatIssue(
+            file_path=str(f),
+            line_number=1,
+            issue_type="python2_print_statement",
+            description="Python 2 print",
+            severity="error",
+            auto_fixable=True,
+        )
+        fixer = AutoFixer()
+        fixer.apply_all(tmp_path, [issue])
+
+        content = f.read_text()
+        assert 'print("error", file=sys.stderr)' in content
+
+    def test_preserves_print_function(self, tmp_path: Path) -> None:
+        f = tmp_path / "module.py"
+        f.write_text('print("already function")\nprint "statement"\n')
+        issue = CompatIssue(
+            file_path=str(f),
+            line_number=2,
+            issue_type="python2_print_statement",
+            description="Python 2 print",
+            severity="error",
+            auto_fixable=True,
+        )
+        fixer = AutoFixer()
+        fixer.apply_all(tmp_path, [issue])
+
+        content = f.read_text()
+        assert 'print("already function")' in content
+        assert 'print("statement")' in content

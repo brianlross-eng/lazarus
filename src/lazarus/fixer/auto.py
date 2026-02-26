@@ -78,6 +78,7 @@ class AutoFixer:
             "deprecated_pkg_resources": self._fix_pkg_resources,
             "removed_configparser_safeconfigparser": self._fix_configparser_safeconfigparser,
             "removed_configparser_readfp": self._fix_configparser_readfp,
+            "python2_print_statement": self._fix_python2_print,
         }.get(issue.issue_type)
 
         if handler is None:
@@ -295,6 +296,69 @@ class AutoFixer:
         """Replace ConfigParser.readfp() with read_file()."""
         source = re.sub(r'\.readfp\(', '.read_file(', source)
         return source
+
+    def _fix_python2_print(self, source: str, issue: CompatIssue) -> str:
+        """Convert Python 2 print statements to print() function calls.
+
+        Handles the common patterns:
+        - print "msg"          → print("msg")
+        - print a, b           → print(a, b)
+        - print a,             → print(a, end=" ")
+        - print >>f, msg       → print(msg, file=f)
+        - print >>f, msg,      → print(msg, file=f, end=" ")
+        """
+        lines = source.split("\n")
+        changed = False
+
+        for i, line in enumerate(lines):
+            stripped = line.lstrip()
+            if stripped.startswith("#"):
+                continue
+            indent = line[: len(line) - len(stripped)]
+
+            # Skip if not a print token at statement position
+            if not re.match(r"print(?:\s|$)", stripped):
+                continue
+            # Skip print() — already a function call
+            if re.match(r"print\s*\(", stripped):
+                continue
+            # Skip assignment: print = ..., print += ..., etc.
+            if re.match(r"print\s*[+\-*/%&|^]=|print\s*=(?!=)", stripped):
+                continue
+
+            # Pattern: print >>file, args[,]
+            m = re.match(r"print\s*>>\s*([^,]+?)\s*,\s*(.*)", stripped)
+            if m:
+                file_expr = m.group(1).strip()
+                rest = m.group(2).rstrip()
+                if rest.endswith(","):
+                    rest = rest[:-1].rstrip()
+                    lines[i] = f'{indent}print({rest}, file={file_expr}, end=" ")'
+                else:
+                    lines[i] = f"{indent}print({rest}, file={file_expr})"
+                changed = True
+                continue
+
+            # Pattern: print args[,]
+            m = re.match(r"print\s+(.*)", stripped)
+            if m:
+                args = m.group(1).rstrip()
+                if not args:
+                    lines[i] = f"{indent}print()"
+                elif args.endswith(","):
+                    args = args[:-1].rstrip()
+                    lines[i] = f'{indent}print({args}, end=" ")'
+                else:
+                    lines[i] = f"{indent}print({args})"
+                changed = True
+                continue
+
+            # Bare print (no args, just "print" on its own line)
+            if stripped.rstrip() == "print":
+                lines[i] = f"{indent}print()"
+                changed = True
+
+        return "\n".join(lines) if changed else source
 
     def _fix_invalid_escape_sequences(self, source: str, issue: CompatIssue) -> str:
         r"""Fix invalid escape sequences by doubling unrecognized backslash escapes.

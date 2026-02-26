@@ -266,6 +266,43 @@ class TestConfigparserSafeConfigParser:
         assert readfp_issues[0].auto_fixable is True
 
 
+class TestPython2PrintStatement:
+    def test_detects_print_statement(self, analyzer: StaticAnalyzer, tmp_py) -> None:
+        p = tmp_py("x = 1")
+        p.write_text('print "hello"\n')
+        issues = analyzer.analyze_file(p)
+        print_issues = [i for i in issues if i.issue_type == "python2_print_statement"]
+        assert len(print_issues) == 1
+        assert print_issues[0].auto_fixable is True
+
+    def test_detects_print_redirect(self, analyzer: StaticAnalyzer, tmp_py) -> None:
+        p = tmp_py("x = 1")
+        p.write_text('print >>sys.stderr, "error"\n')
+        issues = analyzer.analyze_file(p)
+        print_issues = [i for i in issues if i.issue_type == "python2_print_statement"]
+        assert len(print_issues) == 1
+
+    def test_ignores_print_function(self, analyzer: StaticAnalyzer, tmp_py) -> None:
+        f = tmp_py('print("hello")\n')
+        issues = analyzer.analyze_file(f)
+        print_issues = [i for i in issues if i.issue_type == "python2_print_statement"]
+        assert len(print_issues) == 0
+
+    def test_ignores_print_in_comment(self, analyzer: StaticAnalyzer, tmp_py) -> None:
+        f = tmp_py('# print "old code"\nx = 1\n')
+        issues = analyzer.analyze_file(f)
+        print_issues = [i for i in issues if i.issue_type == "python2_print_statement"]
+        assert len(print_issues) == 0
+
+    def test_no_syntax_error_when_print_detected(self, analyzer: StaticAnalyzer, tmp_py) -> None:
+        """When print statements are detected, generic syntax_error should not be added."""
+        p = tmp_py("x = 1")
+        p.write_text('print "hello"\nprint "world"\n')
+        issues = analyzer.analyze_file(p)
+        assert not any(i.issue_type == "syntax_error" for i in issues)
+        assert any(i.issue_type == "python2_print_statement" for i in issues)
+
+
 class TestAnalyzeTree:
     def test_scans_directory(self, analyzer: StaticAnalyzer, tmp_path: Path) -> None:
         (tmp_path / "a.py").write_text("import ast\nx = ast.Num\n")
