@@ -83,25 +83,30 @@ Matching the auto-fixable analyzer checks above. The escape sequence fixer uses 
 ## Pipeline Behavior
 - Full loop: fetch → analyze → fix → build → **upload to devpi** → installable via pip
 - **Cache cleanup**: cached sdists are deleted after each job completes (prevents disk exhaustion)
+- **Missing build files**: `_ensure_build_files()` creates empty stubs for requirements.txt, README, VERSION etc. referenced in setup.py but missing from sdist (fixes ~260 packages)
 - `SKIP_BUILD_PACKAGES` frozenset: 26 C-extension packages that hang during build
 - `_has_c_extensions()` heuristic: detects .c/.cpp/.pyx files and ext_modules in setup.py
 - `needs_review` workflow: packages with unfixed AI issues get flagged instead of silently completed
 - Two-tier design: server runs `--auto-only` (no API key), reviews pulled locally for Claude fixing
 - Upload requires `--upload` flag or `LAZARUS_UPLOAD=1` + `LAZARUS_DEVPI_PASSWORD`
 - DevpiUploader uses native devpi auth: login → base64(user:token) X-Devpi-Auth header
-- **Version override strategy** (three layers):
-  1. `dynamic = ["version"]` → removed, set static version in pyproject.toml
+- **Version override strategy** (four layers):
+  1. `dynamic = ["version"]` → removed from list (any position), set static version in pyproject.toml
   2. `SETUPTOOLS_SCM_PRETEND_VERSION` env var for git-tag-based versions
   3. PKG-INFO rewrite as universal sdist fallback
   4. Regex rewrites for setup.py, setup.cfg, __init__.py with `__version__ = "..."`
+  5. Version regexes use `(?!\.)` negative lookahead (prevents `".".join()` corruption) and `\b` word boundary (prevents `minversion`/`local_version` matches)
+- **Build environment**: `PIP_CONSTRAINT=setuptools<82` ensures pkg_resources remains available in isolated build venvs
 
 ## Batch Processing Results
 ### 129,821 total packages (top-15k + 115k deep seed)
-- ~67,139 already compatible (fix_method=none)
-- ~7,365 auto-fixed (escape sequences, pkg_resources, etc.)
-- ~9,521 failed — mostly no sdist available or C-extension build issues
-- ~45,795 pending (processing ongoing, ~350/min throughput)
-- 0 needs_review
+- 115,414 complete (88.9%)
+  - 102,771 already compatible (fix_method=none)
+  - 12,643 auto-fixed (escape sequences, pkg_resources, missing build files, etc.)
+- 14,407 failed (11.1%)
+  - ~13,200 no sdist available
+  - ~1,200 other (C extensions, Python 2 code, build system issues)
+- 0 pending
 
 ## Database
 - SQLite at `~/.lazarus/queue.db`
@@ -160,3 +165,4 @@ ssh -i ~/.ssh/id_ed25519 root@89.167.40.82
 - Consider Cloudflare proxy (orange cloud) after SSL is stable
 - Reduce processor idle churn (currently restarts every 60s even when queue empty)
 - Monitor disk usage as devpi store grows (~0.4MB per fixed package)
+- **After first pass**: revisit C-extension packages (numpy, pandas, etc.) — analyze failure reasons, consider build agent with compilers or sourcing pre-built 3.14 wheels
