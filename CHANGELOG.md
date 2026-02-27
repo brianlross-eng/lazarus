@@ -18,12 +18,29 @@ Versioning follows [PEP 440](https://peps.python.org/pep-0440/) and [Semantic Ve
 - **`LAZARUS_UPLOAD` env var** — enable uploads via environment
 - **`LAZARUS_DEVPI_INDEX` env var** — configure devpi index name
 - **Token retry logic** — uploader re-authenticates on 401 (expired tokens)
-- **20 new tests** — 13 for uploader, 7 for version rewriting (96 total)
+- **Expanded analyzer** — 3 new check types (14 total):
+  - `python2_builtin_*` — detects `execfile()`, `raw_input()` (text-based, works on files with SyntaxError)
+  - `removed_module_*` — detects `urllib2`, `Queue`, `commands` imports (text-based)
+  - `removed_ast_constant_attr` — detects `ast.Constant.s`/`.n` attribute access (AST-based)
+- **Expanded auto-fixer** — 6 new fix handlers (14 total):
+  - `execfile()` → `exec(open(...).read())`
+  - `raw_input()` → `input()`
+  - `import urllib2` → `import urllib.request as urllib2`
+  - `import Queue` → `import queue as Queue`
+  - `import commands` → `import subprocess`
+  - `.Constant.s`/`.n` → `.Constant.value`
+- **`normalize_version()`** — sanitizes non-PEP-440 version strings (leading v, hyphens, dev markers)
+- **`admin retry-failures` command** — reprocess failed jobs by error pattern with `--dry-run`, `--pattern`, `--limit`
+- **Queue methods** — `get_failed_by_pattern()`, `reset_failed_by_pattern()` for targeted failure recovery
+- **Missing build files helper** — creates stub files (requirements.txt, README, VERSION) referenced in setup.py
+- **Watchdog cleanup** — auto-cleans orphaned work dirs (>30min) and stale cache (>1hr)
+- **46 new tests** (175 total)
 
 ### Changed
 - Config defaults: `devpi_url` → `http://localhost:3141`, `devpi_index` → `lazarus/packages`
 - Config: added `upload_enabled` flag (default: off, requires explicit opt-in)
 - Pipeline: `ProcessResult.dists_uploaded` tracks what was published
+- `lazarus_version()` now normalizes input before processing (handles non-PEP-440 strings)
 
 ### Fixed
 - **devpi auth encoding** — X-Devpi-Auth requires base64(user:token), not plain text
@@ -34,6 +51,7 @@ Versioning follows [PEP 440](https://peps.python.org/pep-0440/) and [Semantic Ve
 - **Test skip logic** — only skip `__init__.py` in dirs starting with "test", not paths
   containing "test" anywhere
 - **nginx proxy** — added `/+f/` and `/%2Bf/` routes for devpi file downloads
+- **Version rewrite safety** — `(?!\.)` prevents `".".join()` corruption, `\b` prevents `minversion`/`local_version` matches
 
 ---
 
