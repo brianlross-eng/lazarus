@@ -52,6 +52,16 @@ class TestEnsureBuildFiles:
         assert "requirements.txt" not in created
         assert reqs.read_text() == "flask>=2.0\n"
 
+    def test_creates_subdir_requirements(self, tmp_path) -> None:
+        """Handles tests/requirements.txt, docs/requirements.txt, etc."""
+        setup_py = tmp_path / "setup.py"
+        setup_py.write_text(
+            "reqs = open('tests/requirements.txt').read()\n"
+        )
+        created = _ensure_build_files(tmp_path, "1.0.0")
+        assert "tests/requirements.txt" in created
+        assert (tmp_path / "tests" / "requirements.txt").exists()
+
     def test_creates_version_txt(self, tmp_path) -> None:
         setup_py = tmp_path / "setup.py"
         setup_py.write_text(

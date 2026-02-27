@@ -120,17 +120,26 @@ def _ensure_build_files(source_dir: Path, version: str) -> list[str]:
             p.write_text(version)
             created.append(name)
 
-    # Subdirectory requirement files (base.txt, prod.txt in requirements/)
-    for sub in ("requirements", "reqs"):
-        d = source_dir / sub
-        if d.is_dir():
-            for name in ("base.txt", "prod.txt", "common.txt"):
-                p = d / name
-                if not p.exists():
-                    # Check if parent dir is referenced in configs
-                    if _is_referenced(f"{sub}/{name}") or _is_referenced(sub):
-                        p.write_text("")
-                        created.append(f"{sub}/{name}")
+    # Subdirectory files — scan configs for relative paths we can stub.
+    # Matches patterns like "tests/requirements.txt", "docs/requirements.txt",
+    # "requirements/base.txt", etc.
+    import re as _re
+    for cfg_name in config_files:
+        cfg = source_dir / cfg_name
+        if not cfg.exists():
+            continue
+        try:
+            text = cfg.read_text(errors="ignore")
+        except OSError:
+            continue
+        # Find quoted paths with a slash that look like subdir files
+        for m in _re.finditer(r'["\']([a-zA-Z_./]+/[a-zA-Z_.-]+\.(?:txt|rst|md|in|cfg))["\']', text):
+            rel_path = m.group(1)
+            p = source_dir / rel_path
+            if not p.exists():
+                p.parent.mkdir(parents=True, exist_ok=True)
+                p.write_text("")
+                created.append(rel_path)
 
     return created
 
