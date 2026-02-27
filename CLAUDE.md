@@ -16,7 +16,7 @@ PyPI-compatible proxy repository that automatically resurrects Python packages b
 
 ## Key Commands
 ```bash
-# Run all tests (102 tests, should all pass)
+# Run all tests (175 tests, should all pass)
 python -m pytest -v
 
 # CLI (must use python -m until pip install -e . is done)
@@ -27,6 +27,8 @@ python -m lazarus admin process --auto-only  # Process queue (auto-fixes only)
 python -m lazarus admin watchdog        # Supervisor process
 python -m lazarus admin seed --count 1000    # Seed queue from top PyPI packages
 python -m lazarus admin seed --deep -n 5000  # Seed from full PyPI index (long tail)
+python -m lazarus admin retry-failures --dry-run  # Preview fixable failed packages
+python -m lazarus admin retry-failures --pattern SyntaxError --limit 10  # Retry specific pattern
 
 # Useful direct DB queries
 python -c "from lazarus.config import LazarusConfig; from lazarus.db.queue import JobQueue; q = JobQueue(LazarusConfig().db_path); q.initialize(); print(q.get_status()); q.close()"
@@ -48,11 +50,11 @@ src/lazarus/
 │   ├── top_packages.py # Fetch top-N from hugovk dataset
 │   └── metadata.py     # PackageMetadata, VersionMetadata dataclasses
 ├── compat/
-│   ├── analyzer.py     # AST-based static analysis (11 check types)
+│   ├── analyzer.py     # AST-based static analysis (14 check types)
 │   ├── tester.py       # Run tests in isolated 3.14 venvs
 │   └── failures.py     # Failure classification
 ├── fixer/
-│   ├── auto.py         # Mechanical fixes (7 fix types including escape sequences)
+│   ├── auto.py         # Mechanical fixes (14 fix types including escape sequences)
 │   ├── claude.py       # Claude API for complex fixes
 │   └── patcher.py      # Backup/restore for safe patching
 ├── publisher/
@@ -64,7 +66,7 @@ src/lazarus/
     └── deploy.py       # Hetzner setup scripts
 ```
 
-## Analyzer Checks (11 types in compat/analyzer.py)
+## Analyzer Checks (14 types in compat/analyzer.py)
 1. `removed_ast_node` — ast.Num/Str/Bytes/NameConstant/Ellipsis → ast.Constant ✅ auto-fixable
 2. `removed_asyncio_watcher` — child watcher APIs removed ❌ needs AI
 3. `removed_pkgutil_loader` — find_loader/get_loader → importlib.util.find_spec ✅ auto-fixable
@@ -76,9 +78,12 @@ src/lazarus/
 9. `removed_pty_function` — master_open/slave_open → openpty ✅ auto-fixable
 10. `deprecated_pkg_resources` — pkg_resources imports ✅ auto-fixable (common patterns)
 11. `invalid_escape_sequence` — \p, \/, \d etc. in non-raw strings ✅ auto-fixable
+12. `python2_builtin_*` — execfile(), raw_input() → exec(open().read()), input() ✅ auto-fixable (text-based)
+13. `removed_module_*` — urllib2, Queue, commands → Python 3 equivalents ✅ auto-fixable (text-based)
+14. `removed_ast_constant_attr` — ast.Constant.s/.n → .value ✅ auto-fixable (AST-based)
 
-## Auto-Fixer Handlers (8 types in fixer/auto.py)
-Matching the auto-fixable analyzer checks above. The escape sequence fixer uses a character-by-character state machine to double invalid backslashes while preserving valid escapes and raw strings. The pkg_resources fixer handles get_distribution().version, require(), and resource_filename() patterns via regex replacement.
+## Auto-Fixer Handlers (14 types in fixer/auto.py)
+Matching the auto-fixable analyzer checks above. The escape sequence fixer uses a character-by-character state machine to double invalid backslashes while preserving valid escapes and raw strings. The pkg_resources fixer handles get_distribution().version, require(), and resource_filename() patterns via regex replacement. Python 2 builtin/module fixers use regex-based text replacement (works even on files with SyntaxError).
 
 ## Pipeline Behavior
 - Full loop: fetch → analyze → fix → build → **upload to devpi** → installable via pip
@@ -99,11 +104,10 @@ Matching the auto-fixable analyzer checks above. The escape sequence fixer uses 
 - **Build environment**: `PIP_CONSTRAINT=setuptools<82` ensures pkg_resources remains available in isolated build venvs
 
 ## Batch Processing Results
-### Batch 1: 129,821 packages (top-15k + 115k deep seed) — COMPLETE
-- 115,414 complete (88.9%), 12,643 auto-fixed
-- 14,407 failed (~13,200 no sdist, ~1,200 other)
-### Batch 2: +19,232 packages (deep seed) — PROCESSING
-- Total queue: 149,053 packages
+### Batch 1+2: 149,053 packages — COMPLETE
+- 132,302 complete (88.8%), ~15,500 auto-fixed
+- 16,751 failed (~15,300 no sdist, ~1,450 other)
+- Retry pass recovered 18 additional packages via expanded fixers
 
 ## Database
 - SQLite at `~/.lazarus/queue.db`
