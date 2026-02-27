@@ -13,6 +13,55 @@ from pathlib import Path
 from packaging.version import Version
 
 
+def normalize_version(version_str: str) -> str:
+    """Normalize a version string to be PEP 440 compliant.
+
+    Fixes common non-compliant patterns found in legacy packages:
+    - "1.0.0-beta1" → "1.0.0b1"
+    - "1.0.0.dev-20240101" → "1.0.0.dev20240101"
+    - "1.0-alpha" → "1.0a0"
+    - Trailing dots, extra whitespace, etc.
+
+    Returns the normalized string, or the original if already valid.
+    """
+    s = version_str.strip()
+    if not s:
+        return "0.0.0"
+
+    # Strip leading 'v' or 'V' before validation
+    if s.startswith(("v", "V")) and len(s) > 1 and s[1:2].isdigit():
+        s = s[1:]
+
+    # Already valid? Return the (possibly v-stripped) string.
+    try:
+        v = Version(s)
+        return str(v)
+    except Exception:
+        pass
+
+    # Replace hyphens with dots (but keep pre-release markers)
+    # "1.0.0-beta1" → "1.0.0.beta1"
+    s = re.sub(r'-(?=\d)', '.', s)
+    # "1.0.0-beta" → "1.0.0beta" (PEP 440 pre-release)
+    s = re.sub(r'-?(alpha|beta|rc|dev)', r'\1', s, flags=re.IGNORECASE)
+
+    # ".dev-YYYYMMDD" → ".devYYYYMMDD"
+    s = re.sub(r'\.dev[.-]?(\d+)', r'.dev\1', s)
+
+    # Remove trailing dots
+    s = s.rstrip(".")
+
+    # Remove non-PEP-440 characters (keep digits, dots, a-z for markers)
+    s = re.sub(r'[^0-9a-zA-Z.!+]', '', s)
+
+    # Final validation — if still invalid, fall back to "0.0.0"
+    try:
+        v = Version(s)
+        return str(v)
+    except Exception:
+        return "0.0.0"
+
+
 def lazarus_version(
     original: str, python_target: str = "314", revision: int = 0
 ) -> str:
@@ -26,8 +75,11 @@ def lazarus_version(
     Returns:
         PEP 440 compliant version (e.g., "2.31.0.post314").
     """
+    # Normalize first in case the version isn't PEP 440 compliant
+    normalized = normalize_version(original)
+
     # Validate and parse the original version
-    v = Version(original)
+    v = Version(normalized)
 
     post_num = int(python_target)
     if revision > 0:

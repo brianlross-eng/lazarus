@@ -366,6 +366,71 @@ class TestRemovedStdlibModules:
         assert len(cp_issues) == 0
 
 
+class TestPython2Builtins:
+    def test_detects_execfile(self, analyzer: StaticAnalyzer, tmp_py) -> None:
+        p = tmp_py("x = 1")
+        p.write_text("execfile('setup.py')\n")
+        issues = analyzer.analyze_file(p)
+        exec_issues = [i for i in issues if i.issue_type == "python2_builtin_execfile"]
+        assert len(exec_issues) == 1
+        assert exec_issues[0].auto_fixable is True
+
+    def test_detects_raw_input(self, analyzer: StaticAnalyzer, tmp_py) -> None:
+        p = tmp_py("x = 1")
+        p.write_text("name = raw_input('Enter name: ')\n")
+        issues = analyzer.analyze_file(p)
+        ri_issues = [i for i in issues if i.issue_type == "python2_builtin_raw_input"]
+        assert len(ri_issues) == 1
+
+    def test_ignores_execfile_as_method(self, analyzer: StaticAnalyzer, tmp_py) -> None:
+        f = tmp_py("obj.execfile('foo.py')\n")
+        issues = analyzer.analyze_file(f)
+        exec_issues = [i for i in issues if i.issue_type == "python2_builtin_execfile"]
+        assert len(exec_issues) == 0
+
+    def test_ignores_comment(self, analyzer: StaticAnalyzer, tmp_py) -> None:
+        f = tmp_py("# execfile('old.py')\nx = 1\n")
+        issues = analyzer.analyze_file(f)
+        exec_issues = [i for i in issues if i.issue_type == "python2_builtin_execfile"]
+        assert len(exec_issues) == 0
+
+
+class TestPy2StdlibModules:
+    def test_detects_urllib2(self, analyzer: StaticAnalyzer, tmp_py) -> None:
+        p = tmp_py("x = 1")
+        p.write_text("import urllib2\n")
+        issues = analyzer.analyze_file(p)
+        u2_issues = [i for i in issues if i.issue_type == "removed_module_urllib2"]
+        assert len(u2_issues) == 1
+        assert u2_issues[0].auto_fixable is True
+
+    def test_detects_queue_module(self, analyzer: StaticAnalyzer, tmp_py) -> None:
+        p = tmp_py("x = 1")
+        p.write_text("import Queue\n")
+        issues = analyzer.analyze_file(p)
+        q_issues = [i for i in issues if i.issue_type == "removed_module_Queue"]
+        assert len(q_issues) == 1
+
+    def test_detects_from_urllib2(self, analyzer: StaticAnalyzer, tmp_py) -> None:
+        p = tmp_py("x = 1")
+        p.write_text("from urllib2 import urlopen\n")
+        issues = analyzer.analyze_file(p)
+        u2_issues = [i for i in issues if i.issue_type == "removed_module_urllib2"]
+        assert len(u2_issues) == 1
+
+
+class TestRemovedModuleCommands:
+    def test_detects_commands_import(self, analyzer: StaticAnalyzer, tmp_py) -> None:
+        f = tmp_py("""\
+            import commands
+            commands.getoutput("ls")
+        """)
+        issues = analyzer.analyze_file(f)
+        cmd_issues = [i for i in issues if i.issue_type == "removed_module_commands"]
+        assert len(cmd_issues) == 1
+        assert cmd_issues[0].auto_fixable is True
+
+
 class TestAnalyzeTree:
     def test_scans_directory(self, analyzer: StaticAnalyzer, tmp_path: Path) -> None:
         (tmp_path / "a.py").write_text("import ast\nx = ast.Num\n")

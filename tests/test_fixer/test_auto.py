@@ -526,3 +526,127 @@ class TestAutoFixCgi:
         content = f.read_text()
         assert "html.escape" in content
         assert "import html" in content
+
+
+class TestAutoFixCommands:
+    def test_fixes_getoutput(self, tmp_path: Path) -> None:
+        f = _make_file(tmp_path, """\
+            import commands
+            out = commands.getoutput("ls")
+        """)
+        fixer = AutoFixer()
+        result = fixer.apply_all(tmp_path, [_make_issue(str(f), "removed_module_commands")])
+
+        assert result.issues_fixed >= 1
+        content = f.read_text()
+        assert "import subprocess" in content
+        assert "subprocess.getoutput" in content
+        assert "commands" not in content
+
+
+class TestAutoFixUrllib2:
+    def test_fixes_import(self, tmp_path: Path) -> None:
+        f = tmp_path / "module.py"
+        f.write_text("import urllib2\nresp = urllib2.urlopen('http://example.com')\n")
+        fixer = AutoFixer()
+        result = fixer.apply_all(tmp_path, [_make_issue(str(f), "removed_module_urllib2")])
+
+        assert result.issues_fixed >= 1
+        content = f.read_text()
+        assert "import urllib.request as urllib2" in content
+
+    def test_fixes_from_import(self, tmp_path: Path) -> None:
+        f = tmp_path / "module.py"
+        f.write_text("from urllib2 import urlopen\n")
+        fixer = AutoFixer()
+        result = fixer.apply_all(tmp_path, [_make_issue(str(f), "removed_module_urllib2")])
+
+        content = f.read_text()
+        assert "from urllib.request import urlopen" in content
+
+
+class TestAutoFixQueue:
+    def test_fixes_import(self, tmp_path: Path) -> None:
+        f = tmp_path / "module.py"
+        f.write_text("import Queue\nq = Queue.Queue()\n")
+        fixer = AutoFixer()
+        result = fixer.apply_all(tmp_path, [_make_issue(str(f), "removed_module_Queue")])
+
+        assert result.issues_fixed >= 1
+        content = f.read_text()
+        assert "import queue as Queue" in content
+
+    def test_fixes_from_import(self, tmp_path: Path) -> None:
+        f = tmp_path / "module.py"
+        f.write_text("from Queue import Queue\n")
+        fixer = AutoFixer()
+        result = fixer.apply_all(tmp_path, [_make_issue(str(f), "removed_module_Queue")])
+
+        content = f.read_text()
+        assert "from queue import Queue" in content
+
+
+class TestAutoFixExecfile:
+    def test_fixes_simple_call(self, tmp_path: Path) -> None:
+        f = tmp_path / "module.py"
+        f.write_text("execfile('setup.py')\n")
+        fixer = AutoFixer()
+        result = fixer.apply_all(tmp_path, [_make_issue(str(f), "python2_builtin_execfile")])
+
+        assert result.issues_fixed >= 1
+        content = f.read_text()
+        assert "exec(open('setup.py').read())" in content
+        assert "execfile" not in content
+
+    def test_fixes_two_arg_form(self, tmp_path: Path) -> None:
+        f = tmp_path / "module.py"
+        f.write_text("execfile('setup.py', globals())\n")
+        fixer = AutoFixer()
+        fixer.apply_all(tmp_path, [_make_issue(str(f), "python2_builtin_execfile")])
+
+        content = f.read_text()
+        assert "exec(open('setup.py').read(), globals())" in content
+
+
+class TestAutoFixRawInput:
+    def test_fixes_raw_input(self, tmp_path: Path) -> None:
+        f = tmp_path / "module.py"
+        f.write_text("name = raw_input('Enter name: ')\n")
+        fixer = AutoFixer()
+        result = fixer.apply_all(tmp_path, [_make_issue(str(f), "python2_builtin_raw_input")])
+
+        assert result.issues_fixed >= 1
+        content = f.read_text()
+        assert "input('Enter name: ')" in content
+        assert "raw_input" not in content
+
+
+class TestAutoFixAstConstantAttrs:
+    def test_fixes_constant_s(self, tmp_path: Path) -> None:
+        f = _make_file(tmp_path, """\
+            import ast
+            value = node.Constant.s
+        """)
+        fixer = AutoFixer()
+        result = fixer.apply_all(
+            tmp_path, [_make_issue(str(f), "removed_ast_constant_attr")]
+        )
+
+        assert result.issues_fixed >= 1
+        content = f.read_text()
+        assert ".Constant.value" in content
+        assert ".Constant.s" not in content
+
+    def test_fixes_constant_n(self, tmp_path: Path) -> None:
+        f = _make_file(tmp_path, """\
+            import ast
+            value = node.Constant.n
+        """)
+        fixer = AutoFixer()
+        result = fixer.apply_all(
+            tmp_path, [_make_issue(str(f), "removed_ast_constant_attr")]
+        )
+
+        content = f.read_text()
+        assert ".Constant.value" in content
+        assert ".Constant.n" not in content

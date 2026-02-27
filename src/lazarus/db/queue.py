@@ -230,3 +230,50 @@ class JobQueue:
         """Get total number of jobs."""
         row = self._conn.execute("SELECT COUNT(*) as count FROM jobs").fetchone()
         return row["count"]
+
+    def get_failed_by_pattern(self, pattern: str, limit: int = 0) -> list[Job]:
+        """Get failed jobs whose last_error matches a LIKE pattern."""
+        sql = (
+            "SELECT * FROM jobs WHERE status = ? AND last_error LIKE ? "
+            "ORDER BY priority DESC, created_at ASC"
+        )
+        params: list[object] = [JobStatus.FAILED, f"%{pattern}%"]
+        if limit > 0:
+            sql += " LIMIT ?"
+            params.append(limit)
+        rows = self._conn.execute(sql, params).fetchall()
+        return [_row_to_job(row) for row in rows]
+
+    def reset_failed_by_pattern(self, pattern: str, limit: int = 0) -> int:
+        """Reset failed jobs matching a LIKE pattern back to pending.
+
+        Resets attempts to 0 so they get a fresh chance with the
+        expanded fixers. Returns count of jobs reset.
+        """
+        now = _utcnow()
+        if limit > 0:
+            # Get IDs first, then update
+            rows = self._conn.execute(
+                "SELECT id FROM jobs WHERE status = ? AND last_error LIKE ? "
+                "ORDER BY priority DESC LIMIT ?",
+                (JobStatus.FAILED, f"%{pattern}%", limit),
+            ).fetchall()
+            ids = [row["id"] for row in rows]
+            if not ids:
+                return 0
+            placeholders = ",".join("?" * len(ids))
+            cursor = self._conn.execute(
+                f"UPDATE jobs SET status = ?, attempts = 0, last_error = NULL, "
+                f"fix_method = ?, updated_at = ? WHERE id IN ({placeholders})",
+                [JobStatus.PENDING, FixMethod.NONE, now, *ids],
+            )
+        else:
+            cursor = self._conn.execute(
+                "UPDATE jobs SET status = ?, attempts = 0, last_error = NULL, "
+                "fix_method = ?, updated_at = ? "
+                "WHERE status = ? AND last_error LIKE ?",
+                (JobStatus.PENDING, FixMethod.NONE, now,
+                 JobStatus.FAILED, f"%{pattern}%"),
+            )
+        self._conn.commit()
+        return cursor.rowcount

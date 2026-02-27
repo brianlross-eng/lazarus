@@ -549,6 +549,87 @@ def errors() -> None:
     console.print(table)
 
 
+@admin.command("retry-failures")
+@click.option("--pattern", "-p", default=None, multiple=True,
+              help="Error pattern to match (can specify multiple, e.g. -p SyntaxError -p NameError)")
+@click.option("--limit", "-n", default=0, help="Max jobs to reset (0 = all matching)")
+@click.option("--dry-run", is_flag=True, help="Preview what would be retried without changing anything")
+def retry_failures(pattern: tuple[str, ...], limit: int, dry_run: bool) -> None:
+    """Retry failed packages that match known fixable error patterns.
+
+    Without --pattern, uses a built-in set of patterns known to be
+    fixable by the expanded auto-fixer (Python 2 syntax, removed modules,
+    invalid versions, etc.).
+
+    \b
+    Examples:
+        lazarus admin retry-failures --dry-run
+        lazarus admin retry-failures -p SyntaxError -p NameError
+        lazarus admin retry-failures -p InvalidVersion --limit 10
+    """
+    from lazarus.db.queue import JobQueue
+
+    config = get_config()
+    queue = JobQueue(config.db_path)
+    queue.initialize()
+
+    # Default patterns: things our expanded fixers can handle
+    default_patterns = [
+        "SyntaxError",
+        "NameError: name 'execfile'",
+        "NameError: name 'raw_input'",
+        "NameError: name 'file'",
+        "NameError: name 'reload'",
+        "NameError: name 'unicode'",
+        "NameError: name 'long'",
+        "NameError: name 'basestring'",
+        "NameError: name 'xrange'",
+        "NameError: name 'imp'",
+        "NameError: name 'pkg_resources'",
+        "InvalidVersion",
+        "No module named 'urllib2'",
+        "No module named 'commands'",
+        "No module named 'Queue'",
+        "No module named 'ConfigParser'",
+        "No module named 'imp'",
+        "pkg_resources",
+    ]
+
+    patterns = list(pattern) if pattern else default_patterns
+
+    total_matched = 0
+    total_reset = 0
+
+    for pat in patterns:
+        jobs = queue.get_failed_by_pattern(pat)
+        count = len(jobs)
+        if count == 0:
+            continue
+
+        total_matched += count
+
+        if dry_run:
+            console.print(f"  [yellow]{count:4d}[/]  {pat}")
+            # Show up to 3 sample packages
+            for job in jobs[:3]:
+                console.print(f"         [dim]{job.package_name}=={job.version}[/]")
+            if count > 3:
+                console.print(f"         [dim]... and {count - 3} more[/]")
+        else:
+            per_pattern_limit = limit if limit > 0 else 0
+            reset = queue.reset_failed_by_pattern(pat, per_pattern_limit)
+            total_reset += reset
+            console.print(f"  [green]{reset:4d}[/]  {pat}")
+
+    if dry_run:
+        console.print(f"\n[bold]Would retry {total_matched} package(s)[/]")
+        console.print("[dim]Run without --dry-run to execute[/]")
+    else:
+        console.print(f"\n[bold]Reset {total_reset} package(s) to pending[/]")
+        if total_reset > 0:
+            console.print("[dim]Run 'admin process --auto-only' to reprocess[/]")
+
+
 @admin.command()
 @click.option("--interval", "-i", default=60,
               help="Seconds between checks (default: 60)")

@@ -84,6 +84,12 @@ class AutoFixer:
             "removed_module_py2_configparser": self._fix_py2_configparser,
             "removed_module_pipes": self._fix_pipes_module,
             "removed_module_cgi": self._fix_cgi_module,
+            "removed_module_commands": self._fix_commands_module,
+            "removed_module_urllib2": self._fix_urllib2_module,
+            "removed_module_Queue": self._fix_queue_module,
+            "python2_builtin_execfile": self._fix_execfile,
+            "python2_builtin_raw_input": self._fix_raw_input,
+            "removed_ast_constant_attr": self._fix_ast_constant_attrs,
         }.get(issue.issue_type)
 
         if handler is None:
@@ -619,6 +625,99 @@ class AutoFixer:
                 i += 1
 
         return "".join(result)
+
+
+    def _fix_commands_module(self, source: str, issue: CompatIssue) -> str:
+        """Replace commands module with subprocess."""
+        # commands.getoutput(x) → subprocess.getoutput(x)
+        source = re.sub(r'\bcommands\.getoutput\b', 'subprocess.getoutput', source)
+        # commands.getstatusoutput(x) → subprocess.getstatusoutput(x)
+        source = re.sub(r'\bcommands\.getstatusoutput\b', 'subprocess.getstatusoutput', source)
+        # import commands → import subprocess
+        source = re.sub(
+            r'^(\s*)import\s+commands\s*$',
+            r'\1import subprocess',
+            source,
+            flags=re.MULTILINE,
+        )
+        # from commands import ... → from subprocess import ...
+        source = re.sub(
+            r'from\s+commands\s+import\s+',
+            'from subprocess import ',
+            source,
+        )
+        return source
+
+    def _fix_urllib2_module(self, source: str, issue: CompatIssue) -> str:
+        """Replace urllib2 module with urllib.request."""
+        # import urllib2 → import urllib.request as urllib2
+        # Using alias preserves all existing references
+        source = re.sub(
+            r'^(\s*)import\s+urllib2\s*$',
+            r'\1import urllib.request as urllib2',
+            source,
+            flags=re.MULTILINE,
+        )
+        # from urllib2 import X → from urllib.request import X
+        source = re.sub(
+            r'from\s+urllib2\s+import\s+',
+            'from urllib.request import ',
+            source,
+        )
+        return source
+
+    def _fix_queue_module(self, source: str, issue: CompatIssue) -> str:
+        """Replace Python 2 Queue module with queue."""
+        # import Queue → import queue as Queue
+        source = re.sub(
+            r'^(\s*)import\s+Queue\s*$',
+            r'\1import queue as Queue',
+            source,
+            flags=re.MULTILINE,
+        )
+        # from Queue import X → from queue import X
+        source = re.sub(
+            r'from\s+Queue\s+import\s+',
+            'from queue import ',
+            source,
+        )
+        return source
+
+    def _fix_execfile(self, source: str, issue: CompatIssue) -> str:
+        """Replace execfile() with exec(open().read()).
+
+        Handles:
+        - execfile('foo.py') → exec(open('foo.py').read())
+        - execfile(path) → exec(open(path).read())
+        - execfile('foo.py', globals) → exec(open('foo.py').read(), globals)
+        """
+        # Two-arg form: execfile(path, globals)
+        source = re.sub(
+            r'\bexecfile\(\s*([^,)]+)\s*,\s*([^)]+)\)',
+            r'exec(open(\1).read(), \2)',
+            source,
+        )
+        # Single-arg form: execfile(path)
+        source = re.sub(
+            r'\bexecfile\(\s*([^)]+)\)',
+            r'exec(open(\1).read())',
+            source,
+        )
+        return source
+
+    def _fix_raw_input(self, source: str, issue: CompatIssue) -> str:
+        """Replace raw_input() with input()."""
+        source = re.sub(r'\braw_input\s*\(', 'input(', source)
+        return source
+
+    def _fix_ast_constant_attrs(self, source: str, issue: CompatIssue) -> str:
+        """Replace ast.Constant.s/.n with .value."""
+        # Pattern: .s or .n after Constant (in AST visitor code)
+        source = re.sub(r'\.Constant\.s\b', '.Constant.value', source)
+        source = re.sub(r'\.Constant\.n\b', '.Constant.value', source)
+        # Also handle node.s / node.n in AST visitor context
+        # This is trickier - only do it for lines that reference ast.Constant
+        return source
 
 
 def _find_string_end(line: str, start: int) -> int:

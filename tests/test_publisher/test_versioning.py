@@ -5,6 +5,7 @@ import pytest
 from lazarus.publisher.versioning import (
     is_lazarus_version,
     lazarus_version,
+    normalize_version,
     parse_lazarus_version,
     rewrite_version_in_source,
 )
@@ -21,9 +22,10 @@ class TestLazarusVersion:
     def test_different_python_target(self) -> None:
         assert lazarus_version("1.0.0", python_target="313") == "1.0.0.post313"
 
-    def test_invalid_version_raises(self) -> None:
-        with pytest.raises(Exception):
-            lazarus_version("not-a-version")
+    def test_normalizes_invalid_version(self) -> None:
+        # Non-PEP-440 versions get normalized to "0.0.0" as fallback
+        result = lazarus_version("not-a-version")
+        assert result == "0.0.0.post314"
 
     def test_strips_existing_post(self) -> None:
         assert lazarus_version("0.1.8.post2") == "0.1.8.post314"
@@ -231,3 +233,35 @@ class TestRewriteVersionInSource:
         assert 'version = "2.0.0.post314"' in content
         assert 'local_version = "no-local-version"' in content
         assert 'fallback_version = "0.0.0"' in content
+
+
+class TestNormalizeVersion:
+    def test_valid_version_passes_through(self) -> None:
+        assert normalize_version("1.2.3") == "1.2.3"
+        assert normalize_version("2.0.0a1") == "2.0.0a1"
+
+    def test_strips_leading_v(self) -> None:
+        assert normalize_version("v1.2.3") == "1.2.3"
+
+    def test_normalizes_hyphen_prerelease(self) -> None:
+        result = normalize_version("1.0.0-beta1")
+        # Should become PEP 440 compliant
+        from packaging.version import Version
+        Version(result)  # Should not raise
+
+    def test_empty_string_fallback(self) -> None:
+        assert normalize_version("") == "0.0.0"
+
+    def test_garbage_fallback(self) -> None:
+        assert normalize_version("not-a-version") == "0.0.0"
+
+    def test_single_digit(self) -> None:
+        result = normalize_version("3")
+        # packaging.Version normalizes "3" to "3"
+        from packaging.version import Version
+        Version(result)  # Should not raise
+
+    def test_dev_with_hyphen(self) -> None:
+        result = normalize_version("1.0.0.dev-20240101")
+        from packaging.version import Version
+        Version(result)  # Should not raise

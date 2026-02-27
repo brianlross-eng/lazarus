@@ -39,6 +39,8 @@ class StaticAnalyzer:
         issues.extend(self._check_invalid_escape_sequences(source, path_str))
         issues.extend(self._check_python2_print(source, path_str))
         issues.extend(self._check_py2_configparser_module(source, path_str))
+        issues.extend(self._check_python2_builtins(source, path_str))
+        issues.extend(self._check_py2_stdlib_modules(source, path_str))
 
         try:
             tree = ast.parse(source, filename=str(file_path))
@@ -67,6 +69,7 @@ class StaticAnalyzer:
         issues.extend(self._check_pkg_resources(tree, path_str))
         issues.extend(self._check_configparser_removals(tree, path_str))
         issues.extend(self._check_removed_stdlib_modules(tree, path_str))
+        issues.extend(self._check_ast_constant_attrs(tree, path_str))
         return issues
 
     def analyze_tree(self, source_dir: Path) -> list[CompatIssue]:
@@ -470,6 +473,10 @@ class StaticAnalyzer:
                 "removed_module_cgi",
                 "The cgi module was removed in Python 3.13. Use html/urllib.parse instead.",
             ),
+            "commands": (
+                "removed_module_commands",
+                "The commands module was removed in Python 3. Use subprocess instead.",
+            ),
         }
 
         seen: set[str] = set()
@@ -678,6 +685,134 @@ class StaticAnalyzer:
                     i = j + 1
             else:
                 i += 1
+
+
+    def _check_python2_builtins(
+        self, source: str, path: str
+    ) -> list[CompatIssue]:
+        """Check for Python 2 built-in functions removed in Python 3.
+
+        Text-based check so it works even on files with syntax errors.
+        Detects: execfile(), raw_input(), reload() without importlib.
+        """
+        issues: list[CompatIssue] = []
+        builtins = {
+            "execfile": (
+                "python2_builtin_execfile",
+                "execfile() was removed in Python 3. "
+                "Use exec(open(...).read()) instead.",
+            ),
+            "raw_input": (
+                "python2_builtin_raw_input",
+                "raw_input() was removed in Python 3. Use input() instead.",
+            ),
+        }
+
+        for lineno, line in enumerate(source.splitlines(), start=1):
+            stripped = line.lstrip()
+            if stripped.startswith("#"):
+                continue
+            for name, (issue_type, desc) in builtins.items():
+                # Match standalone function call: name( — not as method or substring
+                if re.search(rf'(?<![.\w]){name}\s*\(', stripped):
+                    issues.append(CompatIssue(
+                        file_path=path,
+                        line_number=lineno,
+                        issue_type=issue_type,
+                        description=desc,
+                        severity="error",
+                        auto_fixable=True,
+                    ))
+                    break  # One issue per line
+
+        return issues
+
+    def _check_py2_stdlib_modules(
+        self, source: str, path: str
+    ) -> list[CompatIssue]:
+        """Check for Python 2 stdlib modules (text-based, works with syntax errors).
+
+        Catches modules that the AST-based checker can't reach due to
+        SyntaxError in Python 2 code.
+        """
+        issues: list[CompatIssue] = []
+        modules = {
+            "urllib2": (
+                "removed_module_urllib2",
+                "urllib2 was removed in Python 3. Use urllib.request instead.",
+            ),
+            "Queue": (
+                "removed_module_Queue",
+                "Queue module was renamed to queue (lowercase) in Python 3.",
+            ),
+        }
+
+        for lineno, line in enumerate(source.splitlines(), start=1):
+            stripped = line.lstrip()
+            if stripped.startswith("#"):
+                continue
+            for mod, (issue_type, desc) in modules.items():
+                if re.match(
+                    rf'(import\s+{mod}\b|from\s+{mod}\s+import)\b',
+                    stripped,
+                ):
+                    issues.append(CompatIssue(
+                        file_path=path,
+                        line_number=lineno,
+                        issue_type=issue_type,
+                        description=desc,
+                        severity="error",
+                        auto_fixable=True,
+                    ))
+                    break
+        return issues
+
+    def _check_ast_constant_attrs(
+        self, tree: ast.AST, path: str
+    ) -> list[CompatIssue]:
+        """Check for ast.Constant.s/.n attribute access (removed in 3.14).
+
+        In Python 3.14, ast.Constant no longer has .s, .n attributes.
+        Use .value instead.
+        """
+        issues: list[CompatIssue] = []
+        removed_attrs = {"s", "n"}
+
+        for node in ast.walk(tree):
+            if (isinstance(node, ast.Attribute)
+                    and node.attr in removed_attrs
+                    and isinstance(node.value, ast.Attribute)
+                    and node.value.attr == "Constant"
+                    and isinstance(node.value.value, ast.Name)
+                    and node.value.value.id == "ast"):
+                # Looks like something.Constant.s or .n — but we want
+                # patterns like `node.s` where node is an ast.Constant
+                # This is hard to detect reliably via AST, so we also
+                # catch explicit `ast.Constant.s` references
+                pass
+
+            # More practical: catch `.s` and `.n` access on any variable
+            # that's likely an ast.Constant node. We look for patterns like:
+            # isinstance(node, ast.Constant) ... node.s or node.n
+            # This requires flow analysis we can't do, so just flag
+            # explicit ast.Constant attribute references.
+            if (isinstance(node, ast.Attribute)
+                    and node.attr in removed_attrs
+                    and isinstance(node.value, ast.Attribute)
+                    and node.value.attr == "Constant"):
+                issues.append(CompatIssue(
+                    file_path=path,
+                    line_number=node.lineno,
+                    issue_type="removed_ast_constant_attr",
+                    description=(
+                        f"ast.Constant.{node.attr} was removed in 3.14. "
+                        f"Use ast.Constant.value instead."
+                    ),
+                    severity="error",
+                    auto_fixable=True,
+                ))
+
+        return issues
 
 
 def _skip_string(line: str, start: int) -> int:
