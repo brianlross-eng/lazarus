@@ -15,6 +15,13 @@ class PyPIError(Exception):
     """Raised when a PyPI API request fails."""
 
 
+def _safe_tar_filter(member: tarfile.TarInfo, path: str) -> tarfile.TarInfo | None:
+    """Like tarfile's 'data' filter but silently skips symlinks."""
+    if member.issym() or member.islnk():
+        return None  # Skip — don't extract symlinks
+    return tarfile.data_filter(member, path)
+
+
 class PyPIClient:
     """Client for the PyPI JSON API."""
 
@@ -116,7 +123,13 @@ class PyPIClient:
 
         if sdist_path.name.endswith((".tar.gz", ".tgz")):
             with tarfile.open(sdist_path, "r:gz") as tar:
-                tar.extractall(dest, filter="data")
+                tar.extractall(dest, filter=_safe_tar_filter)
+        elif sdist_path.name.endswith(".tar.bz2"):
+            with tarfile.open(sdist_path, "r:bz2") as tar:
+                tar.extractall(dest, filter=_safe_tar_filter)
+        elif sdist_path.name.endswith(".tar.xz"):
+            with tarfile.open(sdist_path, "r:xz") as tar:
+                tar.extractall(dest, filter=_safe_tar_filter)
         elif sdist_path.name.endswith(".zip"):
             with zipfile.ZipFile(sdist_path) as zf:
                 zf.extractall(dest)
