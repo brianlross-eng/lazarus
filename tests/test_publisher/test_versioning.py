@@ -235,6 +235,58 @@ class TestRewriteVersionInSource:
         assert 'fallback_version = "0.0.0"' in content
 
 
+    def test_does_not_corrupt_version_inside_string_replace(self, tmp_path) -> None:
+        """version = '...' inside line.replace() must not be rewritten."""
+        setup_py = tmp_path / "setup.py"
+        setup_py.write_text(
+            "from setuptools import setup\n"
+            "with open('setup.cfg') as f:\n"
+            "    for line in f:\n"
+            '        if line.startswith("version"):\n'
+            '            ver = line.replace("version = ", "")\n'
+            "setup(name='vprint', version='0.0.46')\n"
+        )
+        rewrite_version_in_source(tmp_path, "0.0.46.post314")
+        content = setup_py.read_text()
+        # The replace argument must NOT be touched
+        assert 'line.replace("version = ", "")' in content
+        # The actual version= kwarg MUST be rewritten
+        assert "version='0.0.46.post314'" in content
+
+    def test_does_not_corrupt_version_inside_user_options(self, tmp_path) -> None:
+        """version= inside user_options tuples must not be rewritten."""
+        setup_py = tmp_path / "setup.py"
+        setup_py.write_text(
+            "from setuptools import setup\n"
+            "class MyCmd:\n"
+            "    user_options = [\n"
+            "        ('version=', 'v', 'Show version'),\n"
+            "    ]\n"
+            "setup(name='mypkg', version='1.0.0')\n"
+        )
+        rewrite_version_in_source(tmp_path, "1.0.0.post314")
+        content = setup_py.read_text()
+        # The user_options string must NOT be touched
+        assert "('version=', 'v', 'Show version')" in content
+        # The actual version= kwarg MUST be rewritten
+        assert "version='1.0.0.post314'" in content
+
+    def test_does_not_corrupt_version_inside_startswith(self, tmp_path) -> None:
+        """version= inside startswith() string must not be rewritten."""
+        setup_py = tmp_path / "setup.py"
+        setup_py.write_text(
+            "from setuptools import setup\n"
+            "for line in lines:\n"
+            "    if line.startswith('version='):\n"
+            "        ver = line.split('=')[1]\n"
+            "setup(name='mypkg', version='2.0.0')\n"
+        )
+        rewrite_version_in_source(tmp_path, "2.0.0.post314")
+        content = setup_py.read_text()
+        assert "line.startswith('version=')" in content
+        assert "version='2.0.0.post314'" in content
+
+
 class TestNormalizeVersion:
     def test_valid_version_passes_through(self) -> None:
         assert normalize_version("1.2.3") == "1.2.3"

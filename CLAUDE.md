@@ -16,7 +16,7 @@ PyPI-compatible proxy repository that automatically resurrects Python packages b
 
 ## Key Commands
 ```bash
-# Run all tests (175 tests, should all pass)
+# Run all tests (221 tests, should all pass)
 python -m pytest -v
 
 # CLI (must use python -m until pip install -e . is done)
@@ -50,11 +50,11 @@ src/lazarus/
 │   ├── top_packages.py # Fetch top-N from hugovk dataset
 │   └── metadata.py     # PackageMetadata, VersionMetadata dataclasses
 ├── compat/
-│   ├── analyzer.py     # AST-based static analysis (14 check types)
+│   ├── analyzer.py     # AST-based static analysis (22 check types)
 │   ├── tester.py       # Run tests in isolated 3.14 venvs
 │   └── failures.py     # Failure classification
 ├── fixer/
-│   ├── auto.py         # Mechanical fixes (14 fix types including escape sequences)
+│   ├── auto.py         # Mechanical fixes (22 fix types including escape sequences)
 │   ├── claude.py       # Claude API for complex fixes
 │   └── patcher.py      # Backup/restore for safe patching
 ├── publisher/
@@ -66,7 +66,7 @@ src/lazarus/
     └── deploy.py       # Hetzner setup scripts
 ```
 
-## Analyzer Checks (14 types in compat/analyzer.py)
+## Analyzer Checks (22 types in compat/analyzer.py)
 1. `removed_ast_node` — ast.Num/Str/Bytes/NameConstant/Ellipsis → ast.Constant ✅ auto-fixable
 2. `removed_asyncio_watcher` — child watcher APIs removed ❌ needs AI
 3. `removed_pkgutil_loader` — find_loader/get_loader → importlib.util.find_spec ✅ auto-fixable
@@ -78,12 +78,16 @@ src/lazarus/
 9. `removed_pty_function` — master_open/slave_open → openpty ✅ auto-fixable
 10. `deprecated_pkg_resources` — pkg_resources imports ✅ auto-fixable (common patterns)
 11. `invalid_escape_sequence` — \p, \/, \d etc. in non-raw strings ✅ auto-fixable
-12. `python2_builtin_*` — execfile(), raw_input() → exec(open().read()), input() ✅ auto-fixable (text-based)
-13. `removed_module_*` — urllib2, Queue, commands → Python 3 equivalents ✅ auto-fixable (text-based)
-14. `removed_ast_constant_attr` — ast.Constant.s/.n → .value ✅ auto-fixable (AST-based)
+12. `python2_builtin_*` — execfile, raw_input, xrange, reload, unicode, long ✅ auto-fixable (text-based)
+13. `python2_builtin_basestring` — basestring → str ✅ auto-fixable (text-based)
+14. `removed_module_*` — urllib2, Queue, commands → Python 3 equivalents ✅ auto-fixable (text-based)
+15. `removed_ast_constant_attr` — ast.Constant.s/.n → .value ✅ auto-fixable (AST-based)
+16. `python2_except_comma` — except X, e: → except X as e: ✅ auto-fixable (text-based)
+17. `python2_ne_operator` — <> → != ✅ auto-fixable (text-based)
+18. `python2_dict_*` — .iteritems()/.itervalues()/.iterkeys() → .items()/.values()/.keys() ✅ auto-fixable (text-based)
 
-## Auto-Fixer Handlers (14 types in fixer/auto.py)
-Matching the auto-fixable analyzer checks above. The escape sequence fixer uses a character-by-character state machine to double invalid backslashes while preserving valid escapes and raw strings. The pkg_resources fixer handles get_distribution().version, require(), and resource_filename() patterns via regex replacement. Python 2 builtin/module fixers use regex-based text replacement (works even on files with SyntaxError).
+## Auto-Fixer Handlers (22 types in fixer/auto.py)
+Matching the auto-fixable analyzer checks above. The escape sequence fixer uses a character-by-character state machine to double invalid backslashes while preserving valid escapes and raw strings. The pkg_resources fixer handles get_distribution().version, require(), and resource_filename() patterns via regex replacement. Python 2 builtin/module/syntax fixers use regex-based text replacement (works even on files with SyntaxError).
 
 ## Pipeline Behavior
 - Full loop: fetch → analyze → fix → build → **upload to devpi** → installable via pip

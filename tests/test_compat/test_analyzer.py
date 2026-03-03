@@ -382,17 +382,66 @@ class TestPython2Builtins:
         ri_issues = [i for i in issues if i.issue_type == "python2_builtin_raw_input"]
         assert len(ri_issues) == 1
 
+    def test_detects_xrange(self, analyzer: StaticAnalyzer, tmp_py) -> None:
+        p = tmp_py("x = 1")
+        p.write_text("for i in xrange(10): pass\n")
+        issues = analyzer.analyze_file(p)
+        xr_issues = [i for i in issues if i.issue_type == "python2_builtin_xrange"]
+        assert len(xr_issues) == 1
+        assert xr_issues[0].auto_fixable is True
+
+    def test_detects_reload(self, analyzer: StaticAnalyzer, tmp_py) -> None:
+        p = tmp_py("x = 1")
+        p.write_text("import os\nreload(os)\n")
+        issues = analyzer.analyze_file(p)
+        rl_issues = [i for i in issues if i.issue_type == "python2_builtin_reload"]
+        assert len(rl_issues) == 1
+
+    def test_detects_unicode(self, analyzer: StaticAnalyzer, tmp_py) -> None:
+        p = tmp_py("x = 1")
+        p.write_text("s = unicode('hello')\n")
+        issues = analyzer.analyze_file(p)
+        u_issues = [i for i in issues if i.issue_type == "python2_builtin_unicode"]
+        assert len(u_issues) == 1
+
+    def test_detects_long(self, analyzer: StaticAnalyzer, tmp_py) -> None:
+        p = tmp_py("x = 1")
+        p.write_text("n = long(42)\n")
+        issues = analyzer.analyze_file(p)
+        l_issues = [i for i in issues if i.issue_type == "python2_builtin_long"]
+        assert len(l_issues) == 1
+
     def test_ignores_execfile_as_method(self, analyzer: StaticAnalyzer, tmp_py) -> None:
         f = tmp_py("obj.execfile('foo.py')\n")
         issues = analyzer.analyze_file(f)
         exec_issues = [i for i in issues if i.issue_type == "python2_builtin_execfile"]
         assert len(exec_issues) == 0
 
+    def test_ignores_reload_as_method(self, analyzer: StaticAnalyzer, tmp_py) -> None:
+        f = tmp_py("obj.reload()\n")
+        issues = analyzer.analyze_file(f)
+        rl_issues = [i for i in issues if i.issue_type == "python2_builtin_reload"]
+        assert len(rl_issues) == 0
+
     def test_ignores_comment(self, analyzer: StaticAnalyzer, tmp_py) -> None:
         f = tmp_py("# execfile('old.py')\nx = 1\n")
         issues = analyzer.analyze_file(f)
         exec_issues = [i for i in issues if i.issue_type == "python2_builtin_execfile"]
         assert len(exec_issues) == 0
+
+    def test_detects_file_builtin(self, analyzer: StaticAnalyzer, tmp_py) -> None:
+        p = tmp_py("x = 1")
+        p.write_text("f = file('data.txt', 'r')\n")
+        issues = analyzer.analyze_file(p)
+        f_issues = [i for i in issues if i.issue_type == "python2_builtin_file"]
+        assert len(f_issues) == 1
+        assert f_issues[0].auto_fixable is True
+
+    def test_ignores_file_as_method(self, analyzer: StaticAnalyzer, tmp_py) -> None:
+        f = tmp_py("obj.file('data.txt')\n")
+        issues = analyzer.analyze_file(f)
+        f_issues = [i for i in issues if i.issue_type == "python2_builtin_file"]
+        assert len(f_issues) == 0
 
 
 class TestPy2StdlibModules:
@@ -429,6 +478,94 @@ class TestRemovedModuleCommands:
         cmd_issues = [i for i in issues if i.issue_type == "removed_module_commands"]
         assert len(cmd_issues) == 1
         assert cmd_issues[0].auto_fixable is True
+
+
+class TestPython2ExceptComma:
+    def test_detects_except_comma(self, analyzer: StaticAnalyzer, tmp_py) -> None:
+        p = tmp_py("x = 1")
+        p.write_text("try:\n    pass\nexcept ValueError, e:\n    pass\n")
+        issues = analyzer.analyze_file(p)
+        ec_issues = [i for i in issues if i.issue_type == "python2_except_comma"]
+        assert len(ec_issues) == 1
+        assert ec_issues[0].auto_fixable is True
+
+    def test_detects_tuple_except_comma(self, analyzer: StaticAnalyzer, tmp_py) -> None:
+        p = tmp_py("x = 1")
+        p.write_text("try:\n    pass\nexcept (ValueError, TypeError), e:\n    pass\n")
+        issues = analyzer.analyze_file(p)
+        ec_issues = [i for i in issues if i.issue_type == "python2_except_comma"]
+        assert len(ec_issues) == 1
+
+    def test_ignores_except_as(self, analyzer: StaticAnalyzer, tmp_py) -> None:
+        f = tmp_py("try:\n    pass\nexcept ValueError as e:\n    pass\n")
+        issues = analyzer.analyze_file(f)
+        ec_issues = [i for i in issues if i.issue_type == "python2_except_comma"]
+        assert len(ec_issues) == 0
+
+    def test_ignores_comment(self, analyzer: StaticAnalyzer, tmp_py) -> None:
+        f = tmp_py("# except ValueError, e:\nx = 1\n")
+        issues = analyzer.analyze_file(f)
+        ec_issues = [i for i in issues if i.issue_type == "python2_except_comma"]
+        assert len(ec_issues) == 0
+
+
+class TestPython2NeOperator:
+    def test_detects_ne_operator(self, analyzer: StaticAnalyzer, tmp_py) -> None:
+        p = tmp_py("x = 1")
+        p.write_text("if x <> y: pass\n")
+        issues = analyzer.analyze_file(p)
+        ne_issues = [i for i in issues if i.issue_type == "python2_ne_operator"]
+        assert len(ne_issues) == 1
+        assert ne_issues[0].auto_fixable is True
+
+    def test_ignores_comment(self, analyzer: StaticAnalyzer, tmp_py) -> None:
+        f = tmp_py("# x <> y\nx = 1\n")
+        issues = analyzer.analyze_file(f)
+        ne_issues = [i for i in issues if i.issue_type == "python2_ne_operator"]
+        assert len(ne_issues) == 0
+
+
+class TestPython2DictMethods:
+    def test_detects_iteritems(self, analyzer: StaticAnalyzer, tmp_py) -> None:
+        f = tmp_py("for k, v in d.iteritems(): pass\n")
+        issues = analyzer.analyze_file(f)
+        di_issues = [i for i in issues if i.issue_type == "python2_dict_iteritems"]
+        assert len(di_issues) == 1
+        assert di_issues[0].auto_fixable is True
+
+    def test_detects_itervalues(self, analyzer: StaticAnalyzer, tmp_py) -> None:
+        f = tmp_py("for v in d.itervalues(): pass\n")
+        issues = analyzer.analyze_file(f)
+        dv_issues = [i for i in issues if i.issue_type == "python2_dict_itervalues"]
+        assert len(dv_issues) == 1
+
+    def test_detects_iterkeys(self, analyzer: StaticAnalyzer, tmp_py) -> None:
+        f = tmp_py("for k in d.iterkeys(): pass\n")
+        issues = analyzer.analyze_file(f)
+        dk_issues = [i for i in issues if i.issue_type == "python2_dict_iterkeys"]
+        assert len(dk_issues) == 1
+
+    def test_ignores_items(self, analyzer: StaticAnalyzer, tmp_py) -> None:
+        f = tmp_py("for k, v in d.items(): pass\n")
+        issues = analyzer.analyze_file(f)
+        di_issues = [i for i in issues if "python2_dict" in i.issue_type]
+        assert len(di_issues) == 0
+
+
+class TestPython2Basestring:
+    def test_detects_basestring(self, analyzer: StaticAnalyzer, tmp_py) -> None:
+        p = tmp_py("x = 1")
+        p.write_text("isinstance(x, basestring)\n")
+        issues = analyzer.analyze_file(p)
+        bs_issues = [i for i in issues if i.issue_type == "python2_builtin_basestring"]
+        assert len(bs_issues) == 1
+        assert bs_issues[0].auto_fixable is True
+
+    def test_ignores_comment(self, analyzer: StaticAnalyzer, tmp_py) -> None:
+        f = tmp_py("# isinstance(x, basestring)\nx = 1\n")
+        issues = analyzer.analyze_file(f)
+        bs_issues = [i for i in issues if i.issue_type == "python2_builtin_basestring"]
+        assert len(bs_issues) == 0
 
 
 class TestAnalyzeTree:

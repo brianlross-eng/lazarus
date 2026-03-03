@@ -41,6 +41,10 @@ class StaticAnalyzer:
         issues.extend(self._check_py2_configparser_module(source, path_str))
         issues.extend(self._check_python2_builtins(source, path_str))
         issues.extend(self._check_py2_stdlib_modules(source, path_str))
+        issues.extend(self._check_python2_except_comma(source, path_str))
+        issues.extend(self._check_python2_ne_operator(source, path_str))
+        issues.extend(self._check_python2_dict_methods(source, path_str))
+        issues.extend(self._check_python2_basestring(source, path_str))
 
         try:
             tree = ast.parse(source, filename=str(file_path))
@@ -706,6 +710,27 @@ class StaticAnalyzer:
                 "python2_builtin_raw_input",
                 "raw_input() was removed in Python 3. Use input() instead.",
             ),
+            "xrange": (
+                "python2_builtin_xrange",
+                "xrange() was removed in Python 3. Use range() instead.",
+            ),
+            "reload": (
+                "python2_builtin_reload",
+                "reload() builtin was removed in Python 3. "
+                "Use importlib.reload() instead.",
+            ),
+            "unicode": (
+                "python2_builtin_unicode",
+                "unicode() was removed in Python 3. Use str() instead.",
+            ),
+            "long": (
+                "python2_builtin_long",
+                "long() was removed in Python 3. Use int() instead.",
+            ),
+            "file": (
+                "python2_builtin_file",
+                "file() was removed in Python 3. Use open() instead.",
+            ),
         }
 
         for lineno, line in enumerate(source.splitlines(), start=1):
@@ -765,6 +790,135 @@ class StaticAnalyzer:
                         auto_fixable=True,
                     ))
                     break
+        return issues
+
+    def _check_python2_except_comma(
+        self, source: str, path: str
+    ) -> list[CompatIssue]:
+        """Check for Python 2 ``except X, e:`` syntax (causes SyntaxError).
+
+        Python 3 requires ``except X as e:``.  Text-based so it works even
+        when other Python 2 syntax prevents AST parsing.
+        """
+        issues: list[CompatIssue] = []
+        for lineno, line in enumerate(source.splitlines(), start=1):
+            stripped = line.lstrip()
+            if stripped.startswith("#"):
+                continue
+            if not stripped.startswith("except "):
+                continue
+            if " as " in stripped:
+                continue
+            if re.match(r"except\s+(.*),\s*\w+\s*:", stripped):
+                issues.append(CompatIssue(
+                    file_path=path,
+                    line_number=lineno,
+                    issue_type="python2_except_comma",
+                    description=(
+                        "Python 2-style except clause. "
+                        "Use 'except X as e:' instead of 'except X, e:'."
+                    ),
+                    severity="error",
+                    auto_fixable=True,
+                ))
+                break  # One per file
+        return issues
+
+    def _check_python2_ne_operator(
+        self, source: str, path: str
+    ) -> list[CompatIssue]:
+        """Check for Python 2 ``<>`` not-equal operator (causes SyntaxError).
+
+        Python 3 only supports ``!=``.
+        """
+        issues: list[CompatIssue] = []
+        for lineno, line in enumerate(source.splitlines(), start=1):
+            stripped = line.lstrip()
+            if stripped.startswith("#"):
+                continue
+            if "<>" in stripped:
+                issues.append(CompatIssue(
+                    file_path=path,
+                    line_number=lineno,
+                    issue_type="python2_ne_operator",
+                    description=(
+                        "Python 2 '<>' operator was removed. Use '!=' instead."
+                    ),
+                    severity="error",
+                    auto_fixable=True,
+                ))
+                break  # One per file
+        return issues
+
+    def _check_python2_dict_methods(
+        self, source: str, path: str
+    ) -> list[CompatIssue]:
+        """Check for Python 2 dict methods removed in Python 3.
+
+        Detects .iteritems(), .itervalues(), .iterkeys().
+        Text-based so it works on files with syntax errors.
+        """
+        issues: list[CompatIssue] = []
+        methods = {
+            "iteritems": (
+                "python2_dict_iteritems",
+                ".iteritems() was removed in Python 3. Use .items() instead.",
+            ),
+            "itervalues": (
+                "python2_dict_itervalues",
+                ".itervalues() was removed in Python 3. Use .values() instead.",
+            ),
+            "iterkeys": (
+                "python2_dict_iterkeys",
+                ".iterkeys() was removed in Python 3. Use .keys() instead.",
+            ),
+        }
+
+        seen_types: set[str] = set()
+        for lineno, line in enumerate(source.splitlines(), start=1):
+            stripped = line.lstrip()
+            if stripped.startswith("#"):
+                continue
+            for method, (issue_type, desc) in methods.items():
+                if issue_type in seen_types:
+                    continue
+                if re.search(rf"\.{method}\s*\(", stripped):
+                    issues.append(CompatIssue(
+                        file_path=path,
+                        line_number=lineno,
+                        issue_type=issue_type,
+                        description=desc,
+                        severity="error",
+                        auto_fixable=True,
+                    ))
+                    seen_types.add(issue_type)
+        return issues
+
+    def _check_python2_basestring(
+        self, source: str, path: str
+    ) -> list[CompatIssue]:
+        """Check for Python 2 ``basestring`` type (causes NameError).
+
+        Used as ``isinstance(x, basestring)`` — never as a function call,
+        so needs bare-name matching rather than function-call pattern.
+        """
+        issues: list[CompatIssue] = []
+        for lineno, line in enumerate(source.splitlines(), start=1):
+            stripped = line.lstrip()
+            if stripped.startswith("#"):
+                continue
+            if re.search(r"\bbasestring\b", stripped):
+                issues.append(CompatIssue(
+                    file_path=path,
+                    line_number=lineno,
+                    issue_type="python2_builtin_basestring",
+                    description=(
+                        "basestring was removed in Python 3. Use str instead."
+                    ),
+                    severity="error",
+                    auto_fixable=True,
+                ))
+                break  # One per file
         return issues
 
     def _check_ast_constant_attrs(

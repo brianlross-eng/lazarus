@@ -89,6 +89,17 @@ class AutoFixer:
             "removed_module_Queue": self._fix_queue_module,
             "python2_builtin_execfile": self._fix_execfile,
             "python2_builtin_raw_input": self._fix_raw_input,
+            "python2_builtin_xrange": self._fix_xrange,
+            "python2_builtin_reload": self._fix_reload_builtin,
+            "python2_builtin_unicode": self._fix_unicode_builtin,
+            "python2_builtin_long": self._fix_long_builtin,
+            "python2_builtin_basestring": self._fix_basestring,
+            "python2_builtin_file": self._fix_file_builtin,
+            "python2_except_comma": self._fix_python2_except_comma,
+            "python2_ne_operator": self._fix_python2_ne_operator,
+            "python2_dict_iteritems": self._fix_python2_dict_methods,
+            "python2_dict_itervalues": self._fix_python2_dict_methods,
+            "python2_dict_iterkeys": self._fix_python2_dict_methods,
             "removed_ast_constant_attr": self._fix_ast_constant_attrs,
         }.get(issue.issue_type)
 
@@ -708,6 +719,76 @@ class AutoFixer:
     def _fix_raw_input(self, source: str, issue: CompatIssue) -> str:
         """Replace raw_input() with input()."""
         source = re.sub(r'\braw_input\s*\(', 'input(', source)
+        return source
+
+    def _fix_xrange(self, source: str, issue: CompatIssue) -> str:
+        """Replace xrange() with range()."""
+        return re.sub(r'\bxrange\s*\(', 'range(', source)
+
+    def _fix_unicode_builtin(self, source: str, issue: CompatIssue) -> str:
+        """Replace unicode() calls with str()."""
+        return re.sub(r'\bunicode\s*\(', 'str(', source)
+
+    def _fix_long_builtin(self, source: str, issue: CompatIssue) -> str:
+        """Replace long() calls with int()."""
+        return re.sub(r'\blong\s*\(', 'int(', source)
+
+    def _fix_basestring(self, source: str, issue: CompatIssue) -> str:
+        """Replace basestring references with str."""
+        return re.sub(r'\bbasestring\b', 'str', source)
+
+    def _fix_file_builtin(self, source: str, issue: CompatIssue) -> str:
+        """Replace Python 2 file() with open()."""
+        return re.sub(r'(?<![.\w])file\s*\(', 'open(', source)
+
+    def _fix_reload_builtin(self, source: str, issue: CompatIssue) -> str:
+        """Replace bare reload() with importlib.reload()."""
+        source = re.sub(r'(?<![.\w])reload\s*\(', 'importlib.reload(', source)
+        if 'importlib.reload(' in source and 'import importlib' not in source:
+            source = self._add_import(source, 'import importlib')
+        return source
+
+    def _fix_python2_except_comma(self, source: str, issue: CompatIssue) -> str:
+        """Convert ``except X, e:`` to ``except X as e:``.
+
+        Handles both simple (``except ValueError, e:``) and tuple
+        (``except (ValueError, TypeError), e:``) forms.
+        """
+        lines = source.split("\n")
+        changed = False
+        for i, line in enumerate(lines):
+            stripped = line.lstrip()
+            if stripped.startswith("#"):
+                continue
+            if not stripped.startswith("except "):
+                continue
+            if " as " in stripped:
+                continue
+            m = re.match(r"(except\s+.*),\s*(\w+)\s*:", stripped)
+            if m:
+                indent = line[: len(line) - len(stripped)]
+                lines[i] = f"{indent}{m.group(1)} as {m.group(2)}:"
+                changed = True
+        return "\n".join(lines) if changed else source
+
+    def _fix_python2_ne_operator(self, source: str, issue: CompatIssue) -> str:
+        """Replace ``<>`` operator with ``!=``."""
+        lines = source.split("\n")
+        changed = False
+        for i, line in enumerate(lines):
+            stripped = line.lstrip()
+            if stripped.startswith("#"):
+                continue
+            if "<>" in line:
+                lines[i] = line.replace("<>", "!=")
+                changed = True
+        return "\n".join(lines) if changed else source
+
+    def _fix_python2_dict_methods(self, source: str, issue: CompatIssue) -> str:
+        """Replace .iteritems()/.itervalues()/.iterkeys() with Python 3 equivalents."""
+        source = re.sub(r'\.iteritems\s*\(', '.items(', source)
+        source = re.sub(r'\.itervalues\s*\(', '.values(', source)
+        source = re.sub(r'\.iterkeys\s*\(', '.keys(', source)
         return source
 
     def _fix_ast_constant_attrs(self, source: str, issue: CompatIssue) -> str:

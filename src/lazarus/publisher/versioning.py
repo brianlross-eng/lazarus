@@ -202,8 +202,10 @@ def rewrite_version_in_source(source_dir: Path, new_version: str) -> list[str]:
 
         # Also rewrite any existing static version = "..." line
         # (?!\.) prevents matching "." in ".".join() expressions
+        # (?!["\']) prevents matching version inside strings like
+        # line.replace("version = ", "") or ('version=', 'v', ...)
         new_content = re.sub(
-            r'(\bversion\s*=\s*["\'])[^"\']+(["\'])(?!\.)',
+            r'(?<!["\'])(\bversion\s*=\s*["\'])[^"\']+(["\'])(?!\.)',
             rf'\g<1>{new_version}\2',
             new_content,
         )
@@ -212,14 +214,15 @@ def rewrite_version_in_source(source_dir: Path, new_version: str) -> list[str]:
             pyproject.write_text(new_content, encoding="utf-8")
             modified.append(str(pyproject))
 
-    # setup.cfg
+    # setup.cfg — INI format, version key is always at line start
     setup_cfg = source_dir / "setup.cfg"
     if setup_cfg.exists():
         content = setup_cfg.read_text(encoding="utf-8", errors="replace")
         new_content = re.sub(
-            r'(\bversion\s*=\s*).+',
+            r'^(\s*version\s*=\s*).+',
             rf'\g<1>{new_version}',
             content,
+            flags=re.MULTILINE,
         )
         if new_content != content:
             setup_cfg.write_text(new_content, encoding="utf-8")
@@ -230,8 +233,9 @@ def rewrite_version_in_source(source_dir: Path, new_version: str) -> list[str]:
     if setup_py.exists():
         content = setup_py.read_text(encoding="utf-8", errors="replace")
         # (?!\.) prevents matching "." in ".".join() expressions
+        # (?<!["\']) prevents matching version inside strings
         new_content = re.sub(
-            r'(\bversion\s*=\s*["\'])[^"\']+(["\'])(?!\.)',
+            r'(?<!["\'])(\bversion\s*=\s*["\'])[^"\']+(["\'])(?!\.)',
             rf'\g<1>{new_version}\2',
             content,
         )
@@ -251,7 +255,7 @@ def rewrite_version_in_source(source_dir: Path, new_version: str) -> list[str]:
             continue
         if "__version__" in content:
             new_content = re.sub(
-                r'(__version__\s*=\s*["\'])[^"\']+(["\'])(?!\.)',
+                r'(?<!["\'])(__version__\s*=\s*["\'])[^"\']+(["\'])(?!\.)',
                 rf'\g<1>{new_version}\2',
                 content,
             )

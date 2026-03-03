@@ -621,6 +621,208 @@ class TestAutoFixRawInput:
         assert "raw_input" not in content
 
 
+class TestAutoFixXrange:
+    def test_fixes_xrange(self, tmp_path: Path) -> None:
+        f = tmp_path / "module.py"
+        f.write_text("for i in xrange(10): pass\n")
+        fixer = AutoFixer()
+        result = fixer.apply_all(tmp_path, [_make_issue(str(f), "python2_builtin_xrange")])
+
+        assert result.issues_fixed >= 1
+        content = f.read_text()
+        assert "range(10)" in content
+        assert "xrange" not in content
+
+
+class TestAutoFixUnicode:
+    def test_fixes_unicode_call(self, tmp_path: Path) -> None:
+        f = tmp_path / "module.py"
+        f.write_text("s = unicode('hello')\n")
+        fixer = AutoFixer()
+        result = fixer.apply_all(tmp_path, [_make_issue(str(f), "python2_builtin_unicode")])
+
+        assert result.issues_fixed >= 1
+        content = f.read_text()
+        assert "str('hello')" in content
+        assert "unicode" not in content
+
+    def test_preserves_unicode_in_comments(self, tmp_path: Path) -> None:
+        f = tmp_path / "module.py"
+        f.write_text("# unicode handling\ns = unicode('x')\n")
+        fixer = AutoFixer()
+        fixer.apply_all(tmp_path, [_make_issue(str(f), "python2_builtin_unicode")])
+
+        content = f.read_text()
+        assert "# unicode handling" in content
+        assert "s = str('x')" in content
+
+
+class TestAutoFixLong:
+    def test_fixes_long_call(self, tmp_path: Path) -> None:
+        f = tmp_path / "module.py"
+        f.write_text("n = long(42)\n")
+        fixer = AutoFixer()
+        result = fixer.apply_all(tmp_path, [_make_issue(str(f), "python2_builtin_long")])
+
+        assert result.issues_fixed >= 1
+        content = f.read_text()
+        assert "int(42)" in content
+        assert "long(" not in content
+
+    def test_preserves_long_description(self, tmp_path: Path) -> None:
+        f = tmp_path / "module.py"
+        f.write_text("long_description = 'hello'\nn = long(42)\n")
+        fixer = AutoFixer()
+        fixer.apply_all(tmp_path, [_make_issue(str(f), "python2_builtin_long")])
+
+        content = f.read_text()
+        assert "long_description" in content
+        assert "n = int(42)" in content
+
+
+class TestAutoFixBasestring:
+    def test_fixes_isinstance(self, tmp_path: Path) -> None:
+        f = tmp_path / "module.py"
+        f.write_text("if isinstance(x, basestring): pass\n")
+        fixer = AutoFixer()
+        result = fixer.apply_all(
+            tmp_path, [_make_issue(str(f), "python2_builtin_basestring")]
+        )
+
+        assert result.issues_fixed >= 1
+        content = f.read_text()
+        assert "isinstance(x, str)" in content
+        assert "basestring" not in content
+
+
+class TestAutoFixReload:
+    def test_fixes_reload_call(self, tmp_path: Path) -> None:
+        f = tmp_path / "module.py"
+        f.write_text("import os\nreload(os)\n")
+        fixer = AutoFixer()
+        result = fixer.apply_all(
+            tmp_path, [_make_issue(str(f), "python2_builtin_reload")]
+        )
+
+        assert result.issues_fixed >= 1
+        content = f.read_text()
+        assert "importlib.reload(os)" in content
+        assert "import importlib" in content
+
+    def test_does_not_touch_method_reload(self, tmp_path: Path) -> None:
+        f = tmp_path / "module.py"
+        f.write_text("obj.reload()\n")
+        fixer = AutoFixer()
+        result = fixer.apply_all(
+            tmp_path, [_make_issue(str(f), "python2_builtin_reload")]
+        )
+
+        content = f.read_text()
+        assert "obj.reload()" in content
+
+
+class TestAutoFixExceptComma:
+    def test_fixes_simple_except(self, tmp_path: Path) -> None:
+        f = tmp_path / "module.py"
+        f.write_text("try:\n    pass\nexcept ValueError, e:\n    pass\n")
+        fixer = AutoFixer()
+        result = fixer.apply_all(
+            tmp_path, [_make_issue(str(f), "python2_except_comma")]
+        )
+
+        assert result.issues_fixed >= 1
+        content = f.read_text()
+        assert "except ValueError as e:" in content
+        assert "except ValueError," not in content
+
+    def test_fixes_tuple_except(self, tmp_path: Path) -> None:
+        f = tmp_path / "module.py"
+        f.write_text(
+            "try:\n    pass\nexcept (ValueError, TypeError), e:\n    pass\n"
+        )
+        fixer = AutoFixer()
+        fixer.apply_all(tmp_path, [_make_issue(str(f), "python2_except_comma")])
+
+        content = f.read_text()
+        assert "except (ValueError, TypeError) as e:" in content
+
+    def test_preserves_except_as(self, tmp_path: Path) -> None:
+        f = tmp_path / "module.py"
+        f.write_text("try:\n    pass\nexcept ValueError as e:\n    pass\n")
+        fixer = AutoFixer()
+        result = fixer.apply_all(
+            tmp_path, [_make_issue(str(f), "python2_except_comma")]
+        )
+
+        content = f.read_text()
+        assert "except ValueError as e:" in content
+
+
+class TestAutoFixNeOperator:
+    def test_fixes_ne_operator(self, tmp_path: Path) -> None:
+        f = tmp_path / "module.py"
+        f.write_text("if x <> y:\n    pass\n")
+        fixer = AutoFixer()
+        result = fixer.apply_all(
+            tmp_path, [_make_issue(str(f), "python2_ne_operator")]
+        )
+
+        assert result.issues_fixed >= 1
+        content = f.read_text()
+        assert "!=" in content
+        assert "<>" not in content
+
+
+class TestAutoFixDictMethods:
+    def test_fixes_iteritems(self, tmp_path: Path) -> None:
+        f = tmp_path / "module.py"
+        f.write_text("for k, v in d.iteritems():\n    pass\n")
+        fixer = AutoFixer()
+        result = fixer.apply_all(
+            tmp_path, [_make_issue(str(f), "python2_dict_iteritems")]
+        )
+
+        assert result.issues_fixed >= 1
+        content = f.read_text()
+        assert ".items()" in content
+        assert ".iteritems()" not in content
+
+    def test_fixes_itervalues(self, tmp_path: Path) -> None:
+        f = tmp_path / "module.py"
+        f.write_text("for v in d.itervalues():\n    pass\n")
+        fixer = AutoFixer()
+        fixer.apply_all(
+            tmp_path, [_make_issue(str(f), "python2_dict_itervalues")]
+        )
+
+        content = f.read_text()
+        assert ".values()" in content
+        assert ".itervalues()" not in content
+
+    def test_fixes_iterkeys(self, tmp_path: Path) -> None:
+        f = tmp_path / "module.py"
+        f.write_text("for k in d.iterkeys():\n    pass\n")
+        fixer = AutoFixer()
+        fixer.apply_all(
+            tmp_path, [_make_issue(str(f), "python2_dict_iterkeys")]
+        )
+
+        content = f.read_text()
+        assert ".keys()" in content
+        assert ".iterkeys()" not in content
+
+    def test_preserves_items(self, tmp_path: Path) -> None:
+        f = tmp_path / "module.py"
+        f.write_text("for k, v in d.items():\n    pass\n")
+        fixer = AutoFixer()
+        result = fixer.apply_all(
+            tmp_path, [_make_issue(str(f), "python2_dict_iteritems")]
+        )
+
+        content = f.read_text()
+        assert ".items()" in content
+
+
 class TestAutoFixAstConstantAttrs:
     def test_fixes_constant_s(self, tmp_path: Path) -> None:
         f = _make_file(tmp_path, """\
@@ -650,3 +852,28 @@ class TestAutoFixAstConstantAttrs:
         content = f.read_text()
         assert ".Constant.value" in content
         assert ".Constant.n" not in content
+
+
+class TestAutoFixFileBuiltin:
+    def test_fixes_file_call(self, tmp_path: Path) -> None:
+        f = _make_file(tmp_path, """\
+            f = file('data.txt', 'r')
+        """)
+        fixer = AutoFixer()
+        result = fixer.apply_all(
+            tmp_path, [_make_issue(str(f), "python2_builtin_file")]
+        )
+        content = f.read_text()
+        assert "open('data.txt', 'r')" in content
+        assert "file(" not in content
+
+    def test_preserves_file_method(self, tmp_path: Path) -> None:
+        f = _make_file(tmp_path, """\
+            obj.file('data.txt')
+        """)
+        fixer = AutoFixer()
+        result = fixer.apply_all(
+            tmp_path, [_make_issue(str(f), "python2_builtin_file")]
+        )
+        content = f.read_text()
+        assert "obj.file(" in content
