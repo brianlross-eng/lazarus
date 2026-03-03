@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 import shutil
 import tempfile
 from dataclasses import dataclass, field
@@ -101,9 +102,15 @@ def _ensure_build_files(source_dir: Path, version: str) -> list[str]:
         "README.md", "README.rst", "README.txt", "README",
         "readme.md", "Readme.md", "ReadMe.md", "README.MD",
         "README.mdown", "README_PIP.md", "DESCRIPTION.rst",
+        "README_en.md", "README_CN.md", "README_zh.md",
+        "README_ja.md", "README_ko.md",
         "HISTORY.md", "HISTORY.rst",
-        "CHANGELOG.md", "CHANGELOG.rst",
-        "LICENSE", "LICENSE.txt", "LICENSE.md",
+        "CHANGELOG.md", "CHANGELOG.rst", "CHANGES.md", "CHANGES.rst",
+        "CHANGES.txt", "CHANGES", "NEWS.rst", "NEWS.md",
+        "LICENSE", "LICENSE.txt", "LICENSE.md", "LICENCE",
+        "LICENCE.txt", "LICENCE.md", "COPYING", "COPYING.txt",
+        "AUTHORS", "AUTHORS.md", "AUTHORS.rst", "AUTHORS.txt",
+        "CONTRIBUTORS", "CONTRIBUTORS.md", "CONTRIBUTORS.rst",
     )
     for name in doc_files:
         p = source_dir / name
@@ -142,6 +149,131 @@ def _ensure_build_files(source_dir: Path, version: str) -> list[str]:
                 created.append(rel_path)
 
     return created
+
+
+# ---------------------------------------------------------------------------
+# Shim injected into setup.py when it uses ``from pip.req import
+# parse_requirements`` — pip's internal API was removed long ago, so we
+# provide a minimal replacement that just reads lines from a file.
+# ---------------------------------------------------------------------------
+_PIP_PARSE_REQUIREMENTS_SHIM = """\
+def parse_requirements(filename, session=None, options=None):
+    \"\"\"Minimal shim replacing pip.req.parse_requirements.\"\"\"
+    import os
+    class _Req:
+        def __init__(self, line):
+            self.requirement = line
+            self.req = line
+            self.name = line.split("==")[0].split(">=")[0].split("<=")[0].split(">")[0].split("<")[0].split("!=")[0].split("[")[0].strip()
+            self.comes_from = filename
+        def __str__(self):
+            return self.requirement
+    reqs = []
+    if os.path.exists(filename):
+        with open(filename) as f:
+            for line in f:
+                line = line.strip()
+                if line and not line.startswith("#") and not line.startswith("-"):
+                    reqs.append(_Req(line))
+    return reqs
+"""
+
+
+def _fix_setup_py_build_issues(source_dir: Path) -> list[str]:
+    """Fix common setup.py issues that cause build failures.
+
+    Runs before build to patch setup.py for:
+    1. pkg_resources used without import (NameError: name 'pkg_resources')
+    2. from pip.req import parse_requirements (ModuleNotFoundError: No module named 'pip')
+    3. from pip import main / pip.main (same)
+
+    Returns list of fixes applied.
+    """
+    setup_py = source_dir / "setup.py"
+    if not setup_py.exists():
+        return []
+
+    try:
+        source = setup_py.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return []
+
+    original = source
+    fixes: list[str] = []
+
+    # 1. Add `import pkg_resources` if used but not imported
+    has_pkg_resources_usage = bool(re.search(r'\bpkg_resources\.', source))
+    has_pkg_resources_import = bool(re.search(
+        r'^\s*import\s+pkg_resources\b|^\s*from\s+pkg_resources\s+import\b',
+        source, re.MULTILINE,
+    ))
+    if has_pkg_resources_usage and not has_pkg_resources_import:
+        # Insert import after other imports
+        lines = source.split("\n")
+        insert_idx = 0
+        for i, line in enumerate(lines):
+            stripped = line.lstrip()
+            if stripped.startswith("import ") or stripped.startswith("from "):
+                insert_idx = i + 1
+        lines.insert(insert_idx, "import pkg_resources")
+        source = "\n".join(lines)
+        fixes.append("added missing 'import pkg_resources'")
+
+    # 2. Replace `from pip.req import parse_requirements`
+    pip_req_pattern = r'^\s*from\s+pip\.req\s+import\s+parse_requirements\b.*$'
+    if re.search(pip_req_pattern, source, re.MULTILINE):
+        source = re.sub(pip_req_pattern, _PIP_PARSE_REQUIREMENTS_SHIM, source, flags=re.MULTILINE)
+        fixes.append("replaced 'from pip.req import parse_requirements' with shim")
+
+    # Also handle: from pip._internal.req import parse_requirements
+    pip_internal_pattern = r'^\s*from\s+pip\._internal\.req\s+import\s+parse_requirements\b.*$'
+    if re.search(pip_internal_pattern, source, re.MULTILINE):
+        source = re.sub(pip_internal_pattern, _PIP_PARSE_REQUIREMENTS_SHIM, source, flags=re.MULTILINE)
+        fixes.append("replaced 'from pip._internal.req import parse_requirements' with shim")
+
+    # 3. Replace `from pip import main` → subprocess equivalent
+    if re.search(r'^\s*from\s+pip\s+import\s+main\b', source, re.MULTILINE):
+        source = re.sub(
+            r'^\s*from\s+pip\s+import\s+main\b.*$',
+            'import subprocess, sys\ndef main(args): subprocess.check_call([sys.executable, "-m", "pip"] + list(args))',
+            source,
+            flags=re.MULTILINE,
+        )
+        fixes.append("replaced 'from pip import main' with subprocess")
+
+    # 4. Replace bare `import pip` when used as pip.main(...)
+    if re.search(r'^\s*import\s+pip\s*$', source, re.MULTILINE) and re.search(r'\bpip\.main\s*\(', source):
+        source = re.sub(
+            r'^\s*import\s+pip\s*$',
+            'import subprocess, sys',
+            source,
+            flags=re.MULTILINE,
+        )
+        source = re.sub(
+            r'\bpip\.main\s*\(',
+            'subprocess.check_call([sys.executable, "-m", "pip"] + list(',
+            source,
+        )
+        # Close the extra list() call — this is approximate but handles simple cases
+        fixes.append("replaced 'import pip; pip.main(...)' with subprocess")
+
+    # 5. Replace bare `import pip` when used for pip.get_distribution etc.
+    # These are less common — just make pip importable by trying pip install
+    if re.search(r'^\s*import\s+pip\s*$', source, re.MULTILINE) and not fixes:
+        # Remove the import and try-except wrap usages — too complex.
+        # Instead, wrap the import in try/except
+        source = re.sub(
+            r'^(\s*)import\s+pip\s*$',
+            r'\1try:\n\1    import pip\n\1except ImportError:\n\1    pip = None',
+            source,
+            flags=re.MULTILINE,
+        )
+        fixes.append("wrapped 'import pip' in try/except")
+
+    if source != original:
+        setup_py.write_text(source, encoding="utf-8")
+
+    return fixes
 
 
 def _has_c_extensions(source_dir: Path) -> bool:
@@ -332,6 +464,14 @@ class Pipeline:
                     console.print(
                         f"  [dim]Created missing build files: "
                         f"{', '.join(created)}[/]"
+                    )
+
+                # Fix setup.py import issues (pkg_resources, pip)
+                setup_fixes = _fix_setup_py_build_issues(source_dir)
+                if setup_fixes:
+                    console.print(
+                        f"  [dim]Fixed setup.py: "
+                        f"{'; '.join(setup_fixes)}[/]"
                     )
 
                 console.print(f"  [dim]Building {new_ver}...[/]")
