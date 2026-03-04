@@ -16,7 +16,7 @@ PyPI-compatible proxy repository that automatically resurrects Python packages b
 
 ## Key Commands
 ```bash
-# Run all tests (221 tests, should all pass)
+# Run all tests (240 tests, should all pass)
 python -m pytest -v
 
 # CLI (must use python -m until pip install -e . is done)
@@ -106,12 +106,19 @@ Matching the auto-fixable analyzer checks above. The escape sequence fixer uses 
   4. Regex rewrites for setup.py, setup.cfg, __init__.py with `__version__ = "..."`
   5. Version regexes use `(?!\.)` negative lookahead (prevents `".".join()` corruption) and `\b` word boundary (prevents `minversion`/`local_version` matches)
 - **Build environment**: `PIP_CONSTRAINT=setuptools<82` ensures pkg_resources remains available in isolated build venvs
+- **Build fixes** (`_fix_setup_py_build_issues`): patches setup.py before build for pkg_resources imports, pip shims, ez_setup/distribute_setup removal
+- **Archive support**: `.tar.gz`, `.tgz`, `.tar.bz2`, `.tar.xz`, `.zip` — with `_safe_tar_filter()` that silently skips symlinks
 
 ## Batch Processing Results
-### Batch 1+2: 149,053 packages — COMPLETE
-- 132,302 complete (88.8%), ~15,500 auto-fixed
-- 16,751 failed (~15,300 no sdist, ~1,450 other)
-- Retry pass recovered 18 additional packages via expanded fixers
+### Batch 1+2: 158,654 packages — COMPLETE
+- 140,978 complete (88.9%), ~15,500 auto-fixed
+- 17,676 failed (~16,400 no sdist, ~1,300 other)
+- Retry passes recovered 310 packages via expanded fixers and infrastructure fixes
+
+### Batch 3: 57,461 packages — COMPLETE
+- 50,016 completed (87.0%)
+- 7,445 failed
+- Running total: 216,115 queued, 191,022 complete (88.4%)
 
 ## Database
 - SQLite at `~/.lazarus/queue.db`
@@ -123,8 +130,7 @@ Matching the auto-fixable analyzer checks above. The escape sequence fixer uses 
 - Background tasks in Claude conversation sandbox die between turns — use real terminal sessions
 - Server was running old 0.1.0 package until 2026-02-25 — now 1.0.0a1 via `pip install -e .`
 - Version rewrite can accidentally affect build dependency version checks (seen with scikit-build-core)
-- The `re` import in analyzer.py is currently unused (was imported for escape sequence work but state machine approach was used instead)
-- **Disk space**: work dir can grow to 20GB+ from OOM kills/crashes — watchdog now auto-cleans orphaned dirs >30min old
+- **Disk space**: devpi store grows ~1.2MB per fixed package (34GB for 27k packages); work dir cleaned by watchdog
 - `cosmowap` package causes OOM kills — manually failed in DB
 
 ## Domain & Infrastructure
@@ -162,14 +168,16 @@ ssh -i ~/.ssh/id_ed25519 root@89.167.40.82
 - Install: `pip install --extra-index-url https://lazaruspy.org/simple/ <package>`
 
 ## What's Next (toward 1.0.0a2)
-- ~~Seed larger batch~~ Done: 129,821 packages (top-15k + 115k deep seed)
+- ~~Seed larger batch~~ Done: 216k packages across 3 batches
 - ~~Add pkg_resources auto-fixer~~ Done: 8th fix type
 - ~~Cache cleanup~~ Done: sdists deleted after processing, prevents disk fill
+- ~~Add .tar.bz2/.tar.xz support~~ Done: recovered ~150 packages
+- ~~Symlink-safe extraction~~ Done: _safe_tar_filter skips symlinks
+- ~~ez_setup/distribute_setup removal~~ Done: strips obsolete bootstrap
+- ~~Version rewrite corruption fix~~ Done: lookbehind prevents string matches
+- Upgrade server disk (80GB → 160GB+) — devpi store at 34GB, 83% full
 - Implement `server/config.py` and `server/deploy.py` for reproducible deployment
 - Add `/status/<package>` API endpoint for verified compatibility checks
-- Add skip/ignore mechanism for acknowledged-but-won't-fix issues
 - Set up monitoring/alerting for server health
-- Consider Cloudflare proxy (orange cloud) after SSL is stable
 - Reduce processor idle churn (currently restarts every 60s even when queue empty)
-- Monitor disk usage as devpi store grows (~0.4MB per fixed package)
 - **After first pass**: revisit C-extension packages (numpy, pandas, etc.) — analyze failure reasons, consider build agent with compilers or sourcing pre-built 3.14 wheels

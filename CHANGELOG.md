@@ -18,23 +18,26 @@ Versioning follows [PEP 440](https://peps.python.org/pep-0440/) and [Semantic Ve
 - **`LAZARUS_UPLOAD` env var** — enable uploads via environment
 - **`LAZARUS_DEVPI_INDEX` env var** — configure devpi index name
 - **Token retry logic** — uploader re-authenticates on 401 (expired tokens)
-- **Expanded analyzer** — 3 new check types (14 total):
-  - `python2_builtin_*` — detects `execfile()`, `raw_input()` (text-based, works on files with SyntaxError)
+- **Expanded analyzer** — 22 check types (was 11):
+  - `python2_builtin_*` — detects `execfile()`, `raw_input()`, `xrange()`, `file()`, etc. (text-based)
+  - `python2_builtin_basestring` — basestring → str
   - `removed_module_*` — detects `urllib2`, `Queue`, `commands` imports (text-based)
-  - `removed_ast_constant_attr` — detects `ast.Constant.s`/`.n` attribute access (AST-based)
-- **Expanded auto-fixer** — 6 new fix handlers (14 total):
-  - `execfile()` → `exec(open(...).read())`
-  - `raw_input()` → `input()`
-  - `import urllib2` → `import urllib.request as urllib2`
-  - `import Queue` → `import queue as Queue`
-  - `import commands` → `import subprocess`
-  - `.Constant.s`/`.n` → `.Constant.value`
+  - `removed_ast_constant_attr` — detects `ast.Constant.s`/`.n` attribute access
+  - `python2_except_comma` — `except X, e:` syntax
+  - `python2_ne_operator` — `<>` operator
+  - `python2_dict_*` — `.iteritems()`/`.itervalues()`/`.iterkeys()`
+- **Expanded auto-fixer** — 22 fix handlers (was 7), matching all auto-fixable analyzer checks
+- **`.tar.bz2` / `.tar.xz` archive support** — extract sdists in bzip2 and xz formats
+- **Symlink-safe tar extraction** — `_safe_tar_filter()` silently skips symlinks/hardlinks
+  instead of raising `FilterError`
+- **ez_setup / distribute_setup removal** — strips obsolete setuptools bootstrap from setup.py
+- **`file()` builtin fixer** — `file(...)` → `open(...)`
 - **`normalize_version()`** — sanitizes non-PEP-440 version strings (leading v, hyphens, dev markers)
 - **`admin retry-failures` command** — reprocess failed jobs by error pattern with `--dry-run`, `--pattern`, `--limit`
 - **Queue methods** — `get_failed_by_pattern()`, `reset_failed_by_pattern()` for targeted failure recovery
 - **Missing build files helper** — creates stub files (requirements.txt, README, VERSION) referenced in setup.py
 - **Watchdog cleanup** — auto-cleans orphaned work dirs (>30min) and stale cache (>1hr)
-- **46 new tests** (175 total)
+- **65 new tests** (240 total)
 
 ### Changed
 - Config defaults: `devpi_url` → `http://localhost:3141`, `devpi_index` → `lazarus/packages`
@@ -52,6 +55,18 @@ Versioning follows [PEP 440](https://peps.python.org/pep-0440/) and [Semantic Ve
   containing "test" anywhere
 - **nginx proxy** — added `/+f/` and `/%2Bf/` routes for devpi file downloads
 - **Version rewrite safety** — `(?!\.)` prevents `".".join()` corruption, `\b` prevents `minversion`/`local_version` matches
+- **Version rewrite inside strings** — `(?<!["\'])` lookbehind prevents matching `version = "..."` inside string operations like `line.replace("version = ", "")`
+
+### Batch Results
+#### Batch 1+2: 158,654 packages — COMPLETE
+- 140,978 complete (88.9%), ~15,500 auto-fixed
+- 17,676 failed (~16,400 no sdist, ~1,300 other)
+- Retry passes recovered 310 additional packages
+
+#### Batch 3: 57,461 packages — COMPLETE
+- 50,016 completed (87.0%)
+- 7,445 failed
+- Running total: 216,115 queued, 191,022 complete (88.4%)
 
 ---
 
