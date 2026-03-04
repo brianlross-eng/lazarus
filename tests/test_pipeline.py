@@ -195,6 +195,47 @@ class TestFixSetupPyBuildIssues:
         fixes = _fix_setup_py_build_issues(tmp_path)
         assert fixes == []
 
+    def test_removes_ez_setup_import(self, tmp_path) -> None:
+        setup_py = tmp_path / "setup.py"
+        setup_py.write_text(
+            "from ez_setup import use_setuptools\n"
+            "use_setuptools()\n"
+            "from setuptools import setup\n"
+            "setup(name='foo')\n"
+        )
+        fixes = _fix_setup_py_build_issues(tmp_path)
+        assert any("ez_setup" in f for f in fixes)
+        content = setup_py.read_text()
+        assert "ez_setup" not in content
+        assert "use_setuptools" not in content
+        assert "from setuptools import setup" in content
+
+    def test_removes_ez_setup_module_import(self, tmp_path) -> None:
+        setup_py = tmp_path / "setup.py"
+        setup_py.write_text(
+            "import ez_setup\n"
+            "ez_setup.use_setuptools()\n"
+            "from setuptools import setup\n"
+            "setup(name='foo')\n"
+        )
+        fixes = _fix_setup_py_build_issues(tmp_path)
+        assert any("ez_setup" in f for f in fixes)
+        content = setup_py.read_text()
+        assert "ez_setup" not in content
+
+    def test_removes_distribute_setup(self, tmp_path) -> None:
+        setup_py = tmp_path / "setup.py"
+        setup_py.write_text(
+            "from distribute_setup import use_setuptools\n"
+            "use_setuptools()\n"
+            "from setuptools import setup\n"
+            "setup(name='foo')\n"
+        )
+        fixes = _fix_setup_py_build_issues(tmp_path)
+        assert any("distribute_setup" in f for f in fixes)
+        content = setup_py.read_text()
+        assert "distribute_setup" not in content
+
     def test_no_issues(self, tmp_path) -> None:
         setup_py = tmp_path / "setup.py"
         setup_py.write_text(

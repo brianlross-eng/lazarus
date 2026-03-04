@@ -257,7 +257,21 @@ def _fix_setup_py_build_issues(source_dir: Path) -> list[str]:
         # Close the extra list() call — this is approximate but handles simple cases
         fixes.append("replaced 'import pip; pip.main(...)' with subprocess")
 
-    # 5. Replace bare `import pip` when used for pip.get_distribution etc.
+    # 5. Remove ez_setup / distribute_setup bootstrap (setuptools is always available)
+    if re.search(r'^\s*(?:from\s+ez_setup\s+import|import\s+ez_setup)\b', source, re.MULTILINE):
+        # Remove import and use_setuptools() call
+        source = re.sub(r'^\s*(?:from\s+ez_setup\s+import\s+use_setuptools|import\s+ez_setup)\s*$',
+                         '', source, flags=re.MULTILINE)
+        source = re.sub(r'^\s*(?:ez_setup\.)?use_setuptools\(.*?\)\s*$', '', source, flags=re.MULTILINE)
+        fixes.append("removed ez_setup bootstrap (setuptools always available)")
+
+    if re.search(r'^\s*(?:from\s+distribute_setup\s+import|import\s+distribute_setup)\b', source, re.MULTILINE):
+        source = re.sub(r'^\s*(?:from\s+distribute_setup\s+import\s+use_setuptools|import\s+distribute_setup)\s*$',
+                         '', source, flags=re.MULTILINE)
+        source = re.sub(r'^\s*(?:distribute_setup\.)?use_setuptools\(.*?\)\s*$', '', source, flags=re.MULTILINE)
+        fixes.append("removed distribute_setup bootstrap (setuptools always available)")
+
+    # 6. Replace bare `import pip` when used for pip.get_distribution etc.
     # These are less common — just make pip importable by trying pip install
     if re.search(r'^\s*import\s+pip\s*$', source, re.MULTILINE) and not fixes:
         # Remove the import and try-except wrap usages — too complex.
