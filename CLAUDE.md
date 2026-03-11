@@ -119,6 +119,11 @@ Matching the auto-fixable analyzer checks above. The escape sequence fixer uses 
 - 50,016 completed (87.0%)
 - 7,445 failed
 - Running total: 216,115 queued, 191,022 complete (88.4%)
+### Batch 4: 57,313 packages — IN PROGRESS
+- ~42,000 completed so far
+- ~7,000 pending
+- Running total: 273,428 queued, 234,039 complete (85.6%)
+- sqlml-parser OOM crash blocked processing for ~24h — added SKIP_OOM_PACKAGES
 
 ## Database
 - SQLite at `~/.lazarus/queue.db`
@@ -131,13 +136,14 @@ Matching the auto-fixable analyzer checks above. The escape sequence fixer uses 
 - Server was running old 0.1.0 package until 2026-02-25 — now 1.0.0a1 via `pip install -e .`
 - Version rewrite can accidentally affect build dependency version checks (seen with scikit-build-core)
 - **Disk space**: devpi store grows ~1.2MB per fixed package (34GB for 27k packages); work dir cleaned by watchdog
-- `cosmowap` package causes OOM kills — manually failed in DB
+- `SKIP_OOM_PACKAGES` frozenset: cosmowap, sqlml-parser (cause OOM kills during analysis)
 
 ## Domain & Infrastructure
 - **Domain**: lazaruspy.org (Cloudflare Registrar)
 - **Email**: admin@lazaruspy.org (Cloudflare Email Routing → personal email)
 - **DNS**: Cloudflare — A record → 89.167.40.82, CNAME www → lazaruspy.org
 - **Server**: Hetzner CX33 (4 vCPU, 8 GB RAM, 80 GB SSD) — Helsinki, Ubuntu 24.04
+- **Storage volume**: 80GB ext4 (`/dev/sdb`) mounted at `/var/lib/devpi` ($4/mo)
 - **Server IP**: 89.167.40.82 (hostname: lazarus-prod)
 - **Package index URL**: https://lazaruspy.org/simple/
 - **SSL**: Let's Encrypt (auto-renew via certbot)
@@ -175,7 +181,7 @@ ssh -i ~/.ssh/id_ed25519 root@89.167.40.82
 - ~~Symlink-safe extraction~~ Done: _safe_tar_filter skips symlinks
 - ~~ez_setup/distribute_setup removal~~ Done: strips obsolete bootstrap
 - ~~Version rewrite corruption fix~~ Done: lookbehind prevents string matches
-- Upgrade server disk (80GB → 160GB+) — devpi store at 34GB, 83% full
+- ~~Upgrade server disk~~ Done: 80GB ext4 volume at /var/lib/devpi ($4/mo)
 - Implement `server/config.py` and `server/deploy.py` for reproducible deployment
 - Add `/status/<package>` API endpoint for verified compatibility checks
 - Set up monitoring/alerting for server health

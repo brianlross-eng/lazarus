@@ -38,6 +38,7 @@ Versioning follows [PEP 440](https://peps.python.org/pep-0440/) and [Semantic Ve
 - **Missing build files helper** — creates stub files (requirements.txt, README, VERSION) referenced in setup.py
 - **Watchdog cleanup** — auto-cleans orphaned work dirs (>30min) and stale cache (>1hr)
 - **65 new tests** (240 total)
+- **SKIP_OOM_PACKAGES** — early bail-out for packages that OOM-kill the processor (cosmowap, sqlml-parser)
 
 ### Changed
 - Config defaults: `devpi_url` → `http://localhost:3141`, `devpi_index` → `lazarus/packages`
@@ -67,6 +68,7 @@ Versioning follows [PEP 440](https://peps.python.org/pep-0440/) and [Semantic Ve
 - 50,016 completed (87.0%)
 - 7,445 failed
 - Running total: 216,115 queued, 191,022 complete (88.4%)
+#### Batch 4: 57,313 packages — IN PROGRESS- 273,428 total queued, 234,039 complete (85.6%)- sqlml-parser OOM blocked processing ~24h — added SKIP_OOM_PACKAGES
 
 ---
 
