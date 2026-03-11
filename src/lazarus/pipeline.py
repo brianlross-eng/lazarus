@@ -57,6 +57,12 @@ SKIP_BUILD_PACKAGES = frozenset({
     "regex",
 })
 
+# Packages that cause OOM kills during analysis (too large for 8GB server).
+SKIP_OOM_PACKAGES = frozenset({
+    "cosmowap",
+    "sqlml-parser",
+})
+
 
 def _ensure_build_files(source_dir: Path, version: str) -> list[str]:
     """Create commonly missing files that setup.py expects at build time.
@@ -369,6 +375,11 @@ class Pipeline:
             version=job.version,
             success=False,
         )
+
+        # Bail early on packages known to OOM-kill the processor
+        if job.package_name.lower() in SKIP_OOM_PACKAGES:
+            result.error = f"Skipped: {job.package_name} causes OOM during analysis"
+            return result
 
         work_dir = Path(tempfile.mkdtemp(
             prefix=f"lazarus_{job.package_name}_",
