@@ -16,7 +16,7 @@ PyPI-compatible proxy repository that automatically resurrects Python packages b
 
 ## Key Commands
 ```bash
-# Run all tests (240 tests, should all pass)
+# Run all tests (249 tests, should all pass)
 python -m pytest -v
 
 # CLI (must use python -m until pip install -e . is done)
@@ -106,7 +106,7 @@ Matching the auto-fixable analyzer checks above. The escape sequence fixer uses 
   4. Regex rewrites for setup.py, setup.cfg, __init__.py with `__version__ = "..."`
   5. Version regexes use `(?!\.)` negative lookahead (prevents `".".join()` corruption) and `\b` word boundary (prevents `minversion`/`local_version` matches)
 - **Build environment**: `PIP_CONSTRAINT=setuptools<82` ensures pkg_resources remains available in isolated build venvs
-- **Build fixes** (`_fix_setup_py_build_issues`): patches setup.py before build for pkg_resources imports, pip shims, ez_setup/distribute_setup removal
+- **Build fixes** (`_fix_setup_py_build_issues`): patches setup.py before build — 16 fix types including pkg_resources imports, pip shims, ez_setup/distribute_setup removal, Python 2 print/except/raise/octal syntax, import imp shim, removed setuptools commands, pkgutil.ImpImporter, platform.dist(), ConfigParser.readfp
 - **Archive support**: `.tar.gz`, `.tgz`, `.tar.bz2`, `.tar.xz`, `.zip` — with `_safe_tar_filter()` that silently skips symlinks
 
 ## Batch Processing Results
@@ -119,11 +119,12 @@ Matching the auto-fixable analyzer checks above. The escape sequence fixer uses 
 - 50,016 completed (87.0%)
 - 7,445 failed
 - Running total: 216,115 queued, 191,022 complete (88.4%)
-### Batch 4: 57,313 packages — IN PROGRESS
-- ~42,000 completed so far
-- ~7,000 pending
-- Running total: 273,428 queued, 234,039 complete (85.6%)
+### Batch 4: 57,313 packages — COMPLETE
+- 49,067 completed (85.6%)
+- 8,246 failed
+- Running total: 273,428 queued, 240,089 complete (87.8%), 31,214 failed
 - sqlml-parser OOM crash blocked processing for ~24h — added SKIP_OOM_PACKAGES
+- Post-batch retry: ~2,350 packages retried with expanded pre-build fixes (in progress)
 
 ## Database
 - SQLite at `~/.lazarus/queue.db`
@@ -182,6 +183,8 @@ ssh -i ~/.ssh/id_ed25519 root@89.167.40.82
 - ~~ez_setup/distribute_setup removal~~ Done: strips obsolete bootstrap
 - ~~Version rewrite corruption fix~~ Done: lookbehind prevents string matches
 - ~~Upgrade server disk~~ Done: 80GB ext4 volume at /var/lib/devpi ($4/mo)
+- ~~Expand pre-build setup.py patching~~ Done: 16 fix types (was 6), targets Python 2 syntax in setup.py
+- ~~Fix Aliyun mirror in server pip.conf~~ Done: was causing setuptools constraint failures
 - Implement `server/config.py` and `server/deploy.py` for reproducible deployment
 - Add `/status/<package>` API endpoint for verified compatibility checks
 - Set up monitoring/alerting for server health
