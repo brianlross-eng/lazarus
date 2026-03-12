@@ -236,6 +236,110 @@ class TestFixSetupPyBuildIssues:
         content = setup_py.read_text()
         assert "distribute_setup" not in content
 
+    def test_fix_print_statements(self, tmp_path) -> None:
+        setup_py = tmp_path / "setup.py"
+        setup_py.write_text(
+            "from setuptools import setup\n"
+            'print "Installing foo"\n'
+            "setup(name='foo')\n"
+        )
+        fixes = _fix_setup_py_build_issues(tmp_path)
+        assert any("print" in f for f in fixes)
+        content = setup_py.read_text()
+        assert 'print("Installing foo")' in content
+
+    def test_fix_except_comma(self, tmp_path) -> None:
+        setup_py = tmp_path / "setup.py"
+        setup_py.write_text(
+            "try:\n"
+            "    import foo\n"
+            "except ImportError, e:\n"
+            "    pass\n"
+        )
+        fixes = _fix_setup_py_build_issues(tmp_path)
+        assert any("except" in f for f in fixes)
+        content = setup_py.read_text()
+        assert "except ImportError as e:" in content
+
+    def test_fix_octal_literals(self, tmp_path) -> None:
+        setup_py = tmp_path / "setup.py"
+        setup_py.write_text(
+            "import os\n"
+            "os.chmod('script.sh', 0755)\n"
+        )
+        fixes = _fix_setup_py_build_issues(tmp_path)
+        assert any("octal" in f for f in fixes)
+        content = setup_py.read_text()
+        assert "0o755" in content
+
+    def test_fix_import_imp(self, tmp_path) -> None:
+        setup_py = tmp_path / "setup.py"
+        setup_py.write_text(
+            "import imp\n"
+            "imp.find_module('foo')\n"
+        )
+        fixes = _fix_setup_py_build_issues(tmp_path)
+        assert any("imp" in f for f in fixes)
+        content = setup_py.read_text()
+        assert "import importlib" in content
+
+    def test_fix_raise_comma(self, tmp_path) -> None:
+        setup_py = tmp_path / "setup.py"
+        setup_py.write_text(
+            'raise TypeError, "not valid"\n'
+        )
+        fixes = _fix_setup_py_build_issues(tmp_path)
+        assert any("raise" in f for f in fixes)
+        content = setup_py.read_text()
+        assert 'raise TypeError("not valid")' in content
+
+    def test_fix_removed_setuptools_commands(self, tmp_path) -> None:
+        setup_py = tmp_path / "setup.py"
+        setup_py.write_text(
+            "from setuptools.command.register import register\n"
+            "from setuptools import setup\n"
+            "setup(name='foo')\n"
+        )
+        fixes = _fix_setup_py_build_issues(tmp_path)
+        assert any("register" in f for f in fixes)
+        content = setup_py.read_text()
+        assert "setuptools.command.register" not in content
+
+    def test_fix_pkgutil_impimporter(self, tmp_path) -> None:
+        setup_py = tmp_path / "setup.py"
+        setup_py.write_text(
+            "import pkgutil\n"
+            "if isinstance(x, pkgutil.ImpImporter):\n"
+            "    pass\n"
+        )
+        fixes = _fix_setup_py_build_issues(tmp_path)
+        assert any("ImpImporter" in f for f in fixes)
+        content = setup_py.read_text()
+        assert "ImpImporter" not in content
+
+    def test_fix_platform_dist(self, tmp_path) -> None:
+        setup_py = tmp_path / "setup.py"
+        setup_py.write_text(
+            "import platform\n"
+            "dist = platform.dist()\n"
+        )
+        fixes = _fix_setup_py_build_issues(tmp_path)
+        assert any("platform.dist" in f for f in fixes)
+        content = setup_py.read_text()
+        assert "platform.dist()" not in content
+
+    def test_fix_configparser_readfp(self, tmp_path) -> None:
+        setup_py = tmp_path / "setup.py"
+        setup_py.write_text(
+            "import configparser\n"
+            "p = configparser.ConfigParser()\n"
+            "p.readfp(open('foo.cfg'))\n"
+        )
+        fixes = _fix_setup_py_build_issues(tmp_path)
+        assert any("readfp" in f for f in fixes)
+        content = setup_py.read_text()
+        assert ".read_file(" in content
+
     def test_no_issues(self, tmp_path) -> None:
         setup_py = tmp_path / "setup.py"
         setup_py.write_text(

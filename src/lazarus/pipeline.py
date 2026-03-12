@@ -290,6 +290,138 @@ def _fix_setup_py_build_issues(source_dir: Path) -> list[str]:
         )
         fixes.append("wrapped 'import pip' in try/except")
 
+    # 7. Python 2 print statements → print() calls
+    # Match `print "..."` or `print '...'` or `print(` already-ok patterns
+    # Only fix lines that are clearly print-as-statement (no parens)
+    if re.search(r'^\s*print\s+["\']', source, re.MULTILINE):
+        source = re.sub(
+            r'^(\s*)print\s+(["\'].*)$',
+            r'\1print(\2)',
+            source,
+            flags=re.MULTILINE,
+        )
+        fixes.append("converted print statements to print()")
+    # Also handle: print >>sys.stderr, "msg" → print("msg", file=sys.stderr)
+    if re.search(r'^\s*print\s*>>', source, re.MULTILINE):
+        source = re.sub(
+            r'^(\s*)print\s*>>\s*(\S+)\s*,\s*(.*)$',
+            r'\1print(\3, file=\2)',
+            source,
+            flags=re.MULTILINE,
+        )
+        fixes.append("converted print >>file to print(file=)")
+    # Bare print with variable: print foo → print(foo)
+    if re.search(r'^\s*print\s+(?![\(\'\"#])\w', source, re.MULTILINE):
+        source = re.sub(
+            r'^(\s*)print\s+(?![\(\'\"#])(.+)$',
+            r'\1print(\2)',
+            source,
+            flags=re.MULTILINE,
+        )
+        fixes.append("converted bare print statements to print()")
+
+    # 8. Python 2 except comma: except X, e: → except X as e:
+    if re.search(r'\bexcept\s+\w+\s*,\s*\w+\s*:', source):
+        source = re.sub(
+            r'\bexcept\s+(\w+(?:\.\w+)*)\s*,\s*(\w+)\s*:',
+            r'except \1 as \2:',
+            source,
+        )
+        fixes.append("converted except X, e to except X as e")
+
+    # 9. Octal literals: 0755 → 0o755
+    if re.search(r'(?<!\w)0\d{2,}(?!\w)', source):
+        source = re.sub(
+            r'(?<!\w)(0)(\d{2,})(?!\w)',
+            r'0o\2',
+            source,
+        )
+        fixes.append("converted octal literals to 0o prefix")
+
+    # 10. import imp → importlib shim
+    if re.search(r'^\s*import\s+imp\s*$', source, re.MULTILINE):
+        source = re.sub(
+            r'^(\s*)import\s+imp\s*$',
+            r"""\1try:
+\1    import imp
+\1except ImportError:
+\1    import importlib
+\1    class imp:
+\1        @staticmethod
+\1        def find_module(name, path=None):
+\1            return importlib.util.find_spec(name, path)
+\1        @staticmethod
+\1        def load_module(name, *args):
+\1            return importlib.import_module(name)""",
+            source,
+            flags=re.MULTILINE,
+        )
+        fixes.append("shimmed 'import imp' with importlib fallback")
+    # from imp import ... → try/except with importlib
+    if re.search(r'^\s*from\s+imp\s+import\b', source, re.MULTILINE):
+        source = re.sub(
+            r'^(\s*)from\s+imp\s+import\s+(.*)$',
+            r'\1try:\n\1    from imp import \2\n\1except ImportError:\n\1    pass',
+            source,
+            flags=re.MULTILINE,
+        )
+        fixes.append("wrapped 'from imp import' in try/except")
+
+    # 11. distribute bootstrap guard: if not hasattr(pkg_resources, '_distribute')
+    if re.search(r"hasattr\s*\(\s*pkg_resources\s*,\s*['\"]_distribute['\"]\s*\)", source):
+        # Remove the whole if-block guard (typically 2-3 lines)
+        source = re.sub(
+            r'^\s*if\s+not\s+hasattr\s*\(\s*pkg_resources\s*,\s*[\'"]_distribute[\'"]\s*\)\s*:.*\n(?:\s+.*\n)*',
+            '',
+            source,
+            flags=re.MULTILINE,
+        )
+        fixes.append("removed distribute bootstrap guard")
+
+    # 12. Python 2 raise with comma: raise X, Y → raise X(Y)
+    if re.search(r'^\s*raise\s+\w+\s*,\s*', source, re.MULTILINE):
+        # raise Type, "msg" → raise Type("msg")
+        source = re.sub(
+            r'^(\s*)raise\s+(\w+(?:\.\w+)*)\s*,\s*(.+?)(?:\s*,\s*\w+)?\s*$',
+            r'\1raise \2(\3)',
+            source,
+            flags=re.MULTILINE,
+        )
+        fixes.append("converted Python 2 raise X, Y to raise X(Y)")
+
+    # 13. Removed setuptools commands (clean, register, install_data)
+    for cmd in ('setuptools.command.clean', 'setuptools.command.register',
+                'setuptools.command.install_data', 'setuptools.command.upload',
+                'setuptools.package_index'):
+        pattern = r'^\s*(?:from\s+' + re.escape(cmd) + r'\s+import\b.*|import\s+' + re.escape(cmd) + r'\b.*)$'
+        if re.search(pattern, source, re.MULTILINE):
+            source = re.sub(
+                pattern,
+                '# removed: unavailable in modern setuptools',
+                source,
+                flags=re.MULTILINE,
+            )
+            fixes.append(f"removed import of {cmd}")
+
+    # 14. pkgutil.ImpImporter (removed in Python 3.12)
+    if 'ImpImporter' in source:
+        source = re.sub(
+            r'\bpkgutil\.ImpImporter\b',
+            'type(None)',
+            source,
+        )
+        fixes.append("replaced pkgutil.ImpImporter with stub")
+
+    # 15. platform.dist() (removed in Python 3.8)
+    if 'platform.dist()' in source:
+        source = source.replace('platform.dist()', "('', '', '')")
+        fixes.append("replaced platform.dist() with empty tuple")
+
+    # 16. ConfigParser.readfp → read_file
+    if re.search(r'\.readfp\s*\(', source):
+        source = re.sub(r'\.readfp\s*\(', '.read_file(', source)
+        fixes.append("replaced ConfigParser.readfp with read_file")
+
     if source != original:
         setup_py.write_text(source, encoding="utf-8")
 
