@@ -131,14 +131,29 @@ def seed_queue(
 
 
 def fetch_all_package_names() -> list[str]:
-    """Fetch all package names from the PyPI simple index."""
+    """Fetch all package names from the PyPI simple index (streaming to save memory)."""
     import re
 
+    names: list[str] = []
+    pattern = re.compile(r'href="/simple/([^"]+)/"')
     with httpx.Client(timeout=120.0) as client:
-        resp = client.get("https://pypi.org/simple/")
-        resp.raise_for_status()
-        # Links are like href="/simple/package-name/" — extract just the name
-        return re.findall(r'href="/simple/([^"]+)/"', resp.text)
+        with client.stream("GET", "https://pypi.org/simple/") as resp:
+            resp.raise_for_status()
+            buf = ""
+            for chunk in resp.iter_text(chunk_size=65536):
+                buf += chunk
+                # Process complete lines
+                while "\n" in buf:
+                    line, buf = buf.split("\n", 1)
+                    m = pattern.search(line)
+                    if m:
+                        names.append(m.group(1))
+            # Process remaining buffer
+            if buf:
+                m = pattern.search(buf)
+                if m:
+                    names.append(m.group(1))
+    return names
 
 
 def seed_queue_deep(
