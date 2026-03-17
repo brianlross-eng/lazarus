@@ -9,6 +9,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from rich.console import Console
+from rich.markup import escape as rich_escape
 
 from lazarus.compat.analyzer import CompatIssue, StaticAnalyzer
 from lazarus.compat.failures import FailureType, classify_failure, is_auto_fixable
@@ -59,6 +60,7 @@ SKIP_BUILD_PACKAGES = frozenset({
 
 # Packages that cause OOM kills during analysis (too large for 8GB server).
 SKIP_OOM_PACKAGES = frozenset({
+    "cdktf-provider-oci",
     "cosmowap",
     "sqlml-parser",
 })
@@ -567,7 +569,7 @@ class Pipeline:
                             result.issues_fixed += len(attempt.issues_addressed)
                     result.fix_method = FixMethod.AI
                 except Exception as e:
-                    console.print(f"  [red]Claude fix failed: {e}[/]")
+                    console.print(f"  [red]Claude fix failed: {rich_escape(str(e))}[/]")
                     result.fix_method = FixMethod.AUTO if auto_fixable else FixMethod.NONE
             elif needs_ai:
                 # No API key — flag for later review
@@ -640,7 +642,7 @@ class Pipeline:
                     result.dists_built = [p.name for p in dists]
                     result.success = True
                 except Exception as e:
-                    console.print(f"  [red]Build failed: {e}[/]")
+                    console.print(f"  [red]Build failed: {rich_escape(str(e))}[/]")
                     result.error = str(e)
 
                 # 7. Upload to devpi (if build succeeded and uploader configured)
@@ -655,7 +657,7 @@ class Pipeline:
                             f"to {self.config.devpi_index}[/]"
                         )
                     except UploadError as e:
-                        console.print(f"  [red]Upload failed: {e}[/]")
+                        console.print(f"  [red]Upload failed: {rich_escape(str(e))}[/]")
                         # Upload failure is non-fatal — build still succeeded
                         result.error = f"Upload failed: {e}"
 
@@ -664,7 +666,7 @@ class Pipeline:
 
         except Exception as e:
             result.error = str(e)
-            console.print(f"  [red]Error: {e}[/]")
+            console.print(f"  [red]Error: {rich_escape(str(e))}[/]")
         finally:
             # Clean up work directory and cached sdist
             shutil.rmtree(work_dir, ignore_errors=True)
@@ -734,7 +736,7 @@ class Pipeline:
                 else:
                     self.queue.fail(job.id, result.error or "Unknown error")
                     batch.failed += 1
-                    console.print(f"  [red]Failed: {result.error}[/]")
+                    console.print(f"  [red]Failed: {rich_escape(str(result.error or ''))}[/]")
 
         finally:
             self.config.anthropic_api_key = original_api_key
