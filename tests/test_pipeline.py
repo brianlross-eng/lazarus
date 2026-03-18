@@ -348,3 +348,71 @@ class TestFixSetupPyBuildIssues:
         )
         fixes = _fix_setup_py_build_issues(tmp_path)
         assert fixes == []
+
+    def test_imp_load_source_shim(self, tmp_path) -> None:
+        setup_py = tmp_path / "setup.py"
+        setup_py.write_text(
+            "import imp\n"
+            "ver = imp.load_source('ver', 'version.py')\n"
+        )
+        fixes = _fix_setup_py_build_issues(tmp_path)
+        assert any("load_source" in f for f in fixes)
+        content = setup_py.read_text()
+        assert "def load_source" in content
+
+    def test_install_schemes_shim(self, tmp_path) -> None:
+        setup_py = tmp_path / "setup.py"
+        setup_py.write_text(
+            "from setuptools.command.install import INSTALL_SCHEMES\n"
+            "INSTALL_SCHEMES['unix_prefix']['data'] = '/usr'\n"
+        )
+        fixes = _fix_setup_py_build_issues(tmp_path)
+        assert any("INSTALL_SCHEMES" in f for f in fixes)
+        content = setup_py.read_text()
+        assert "except ImportError" in content
+        assert "INSTALL_SCHEMES = {}" in content
+
+    def test_safe_config_parser(self, tmp_path) -> None:
+        setup_py = tmp_path / "setup.py"
+        setup_py.write_text(
+            "from configparser import SafeConfigParser\n"
+            "p = SafeConfigParser()\n"
+        )
+        fixes = _fix_setup_py_build_issues(tmp_path)
+        assert any("SafeConfigParser" in f for f in fixes)
+        content = setup_py.read_text()
+        assert "SafeConfigParser" not in content
+        assert "ConfigParser" in content
+
+    def test_collections_abc_redirect(self, tmp_path) -> None:
+        setup_py = tmp_path / "setup.py"
+        setup_py.write_text(
+            "from collections import Iterable, MutableMapping\n"
+        )
+        fixes = _fix_setup_py_build_issues(tmp_path)
+        assert any("collections.abc" in f for f in fixes)
+        content = setup_py.read_text()
+        assert "from collections.abc import" in content
+
+    def test_inspect_getargspec(self, tmp_path) -> None:
+        setup_py = tmp_path / "setup.py"
+        setup_py.write_text(
+            "import inspect\n"
+            "args = inspect.getargspec(func)\n"
+        )
+        fixes = _fix_setup_py_build_issues(tmp_path)
+        assert any("getargspec" in f for f in fixes)
+        content = setup_py.read_text()
+        assert "getfullargspec" in content
+
+    def test_exec_statement(self, tmp_path) -> None:
+        setup_py = tmp_path / "setup.py"
+        setup_py.write_text(
+            'exec "print(1)"\n'
+            "exec code in namespace\n"
+        )
+        fixes = _fix_setup_py_build_issues(tmp_path)
+        assert any("exec" in f for f in fixes)
+        content = setup_py.read_text()
+        assert 'exec("print(1)")' in content
+        assert "exec(code, namespace)" in content

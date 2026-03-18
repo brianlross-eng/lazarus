@@ -424,6 +424,89 @@ def _fix_setup_py_build_issues(source_dir: Path) -> list[str]:
         source = re.sub(r'\.readfp\s*\(', '.read_file(', source)
         fixes.append("replaced ConfigParser.readfp with read_file")
 
+    # 17. Improve imp shim — add load_source for NameError: name 'load_source'
+    if re.search(r'\bimp\.load_source\b', source) and 'def load_source' not in source:
+        # If we already shimmed imp above, the class needs load_source.
+        # If imp was imported normally but load_source is used, add a fallback.
+        if 'import imp' in source:
+            source = re.sub(
+                r'^(\s*)(import\s+imp\s*)$',
+                r"""\1try:
+\1    import imp
+\1except ImportError:
+\1    import importlib, importlib.util, types
+\1    class imp:
+\1        @staticmethod
+\1        def find_module(name, path=None):
+\1            return importlib.util.find_spec(name, path)
+\1        @staticmethod
+\1        def load_module(name, *args):
+\1            return importlib.import_module(name)
+\1        @staticmethod
+\1        def load_source(name, pathname):
+\1            spec = importlib.util.spec_from_file_location(name, pathname)
+\1            mod = importlib.util.module_from_spec(spec)
+\1            spec.loader.exec_module(mod)
+\1            return mod""",
+                source,
+                flags=re.MULTILINE,
+            )
+            fixes.append("improved imp shim with load_source support")
+
+    # 18. from setuptools.command.install import INSTALL_SCHEMES (removed)
+    if re.search(r'from\s+setuptools\.command\.install\s+import\s+.*INSTALL_SCHEMES', source):
+        source = re.sub(
+            r'^(\s*)from\s+setuptools\.command\.install\s+import\s+.*INSTALL_SCHEMES.*$',
+            r'\1try:\n\1    from setuptools.command.install import INSTALL_SCHEMES\n\1except ImportError:\n\1    INSTALL_SCHEMES = {}',
+            source,
+            flags=re.MULTILINE,
+        )
+        fixes.append("shimmed INSTALL_SCHEMES import with fallback")
+
+    # 19. from configparser import SafeConfigParser (removed in 3.12)
+    if re.search(r'from\s+configparser\s+import\s+.*SafeConfigParser', source):
+        source = re.sub(
+            r'\bSafeConfigParser\b',
+            'ConfigParser',
+            source,
+        )
+        fixes.append("replaced SafeConfigParser with ConfigParser")
+
+    # 20. from collections import Iterable/MutableMapping (moved to collections.abc)
+    collections_abc_pattern = r'^(\s*)from\s+collections\s+import\s+(.*\b(?:Iterable|MutableMapping|Mapping|MutableSet|Callable|Sequence|MutableSequence)\b.*)\s*$'
+    if re.search(collections_abc_pattern, source, re.MULTILINE):
+        source = re.sub(
+            r'^(\s*)from\s+collections\s+import\s+(.*\b(?:Iterable|MutableMapping|Mapping|MutableSet|Callable|Sequence|MutableSequence)\b.*)$',
+            r'\1from collections.abc import \2',
+            source,
+            flags=re.MULTILINE,
+        )
+        fixes.append("redirected collections ABCs to collections.abc")
+
+    # 21. inspect.getargspec → inspect.getfullargspec (removed in 3.11)
+    if re.search(r'\binspect\.getargspec\b', source):
+        source = re.sub(r'\binspect\.getargspec\b', 'inspect.getfullargspec', source)
+        fixes.append("replaced inspect.getargspec with getfullargspec")
+
+    # 22. Python 2 exec statement: exec "code" → exec("code")
+    if re.search(r'^\s*exec\s+["\']', source, re.MULTILINE):
+        source = re.sub(
+            r'^(\s*)exec\s+(["\'].*)$',
+            r'\1exec(\2)',
+            source,
+            flags=re.MULTILINE,
+        )
+        fixes.append("converted exec statements to exec()")
+    # exec code in ns → exec(code, ns)
+    if re.search(r'^\s*exec\s+\w+\s+in\s+', source, re.MULTILINE):
+        source = re.sub(
+            r'^(\s*)exec\s+(\w+)\s+in\s+(\w+)\s*$',
+            r'\1exec(\2, \3)',
+            source,
+            flags=re.MULTILINE,
+        )
+        fixes.append("converted exec...in to exec()")
+
     if source != original:
         setup_py.write_text(source, encoding="utf-8")
 
