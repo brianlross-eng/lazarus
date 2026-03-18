@@ -16,7 +16,7 @@ PyPI-compatible proxy repository that automatically resurrects Python packages b
 
 ## Key Commands
 ```bash
-# Run all tests (249 tests, should all pass)
+# Run all tests (255 tests, should all pass)
 python -m pytest -v
 
 # CLI (must use python -m until pip install -e . is done)
@@ -106,7 +106,7 @@ Matching the auto-fixable analyzer checks above. The escape sequence fixer uses 
   4. Regex rewrites for setup.py, setup.cfg, __init__.py with `__version__ = "..."`
   5. Version regexes use `(?!\.)` negative lookahead (prevents `".".join()` corruption) and `\b` word boundary (prevents `minversion`/`local_version` matches)
 - **Build environment**: `PIP_CONSTRAINT=setuptools<82` ensures pkg_resources remains available in isolated build venvs
-- **Build fixes** (`_fix_setup_py_build_issues`): patches setup.py before build — 16 fix types including pkg_resources imports, pip shims, ez_setup/distribute_setup removal, Python 2 print/except/raise/octal syntax, import imp shim, removed setuptools commands, pkgutil.ImpImporter, platform.dist(), ConfigParser.readfp
+- **Build fixes** (`_fix_setup_py_build_issues`): patches setup.py before build — 22 fix types including pkg_resources imports, pip shims, ez_setup/distribute_setup removal, Python 2 print/except/raise/octal/exec syntax, import imp shim (with load_source), removed setuptools commands, pkgutil.ImpImporter, platform.dist(), ConfigParser.readfp, INSTALL_SCHEMES shim, SafeConfigParser→ConfigParser, collections ABCs→collections.abc, inspect.getargspec→getfullargspec
 - **Archive support**: `.tar.gz`, `.tgz`, `.tar.bz2`, `.tar.xz`, `.zip` — with `_safe_tar_filter()` that silently skips symlinks
 
 ## Batch Processing Results
@@ -124,7 +124,16 @@ Matching the auto-fixable analyzer checks above. The escape sequence fixer uses 
 - 8,246 failed
 - Running total: 273,428 queued, 240,089 complete (87.8%), 31,214 failed
 - sqlml-parser OOM crash blocked processing for ~24h — added SKIP_OOM_PACKAGES
-- Post-batch retry: ~2,350 packages retried with expanded pre-build fixes (in progress)
+- Post-batch retry: ~2,350 packages retried with expanded pre-build fixes
+
+### Batch 5: 19,047 packages — COMPLETE
+- 16,702 completed, 2,345 failed
+- Post-batch retry: 200 packages retried with 6 new fix types, 33 recovered
+- Running total: 292,475 queued, 258,023 complete (88.2%), 34,452 failed, 47,633 auto-fixed
+
+### Batch 6: ~18,930 packages — IN PROGRESS
+- Seeded 2026-03-17, ETA ~16h from seed time
+- Running total: 311,405 queued (40.8% of PyPI's 764k)
 
 ## Database
 - SQLite at `~/.lazarus/queue.db`
@@ -183,10 +192,13 @@ ssh -i ~/.ssh/id_ed25519 root@89.167.40.82
 - ~~ez_setup/distribute_setup removal~~ Done: strips obsolete bootstrap
 - ~~Version rewrite corruption fix~~ Done: lookbehind prevents string matches
 - ~~Upgrade server disk~~ Done: 80GB ext4 volume at /var/lib/devpi ($4/mo)
-- ~~Expand pre-build setup.py patching~~ Done: 16 fix types (was 6), targets Python 2 syntax in setup.py
+- ~~Expand pre-build setup.py patching~~ Done: 22 fix types (was 6), targets Python 2 syntax, removed APIs, moved ABCs
 - ~~Fix Aliyun mirror in server pip.conf~~ Done: was causing setuptools constraint failures
+- ~~Fix deep seed OOM~~ Done: streaming PyPI index parse replaces regex-on-full-HTML
+- **Soft launch at 50% of PyPI** (~382k packages) — blog post, HN/Reddit, landing page
 - Implement `server/config.py` and `server/deploy.py` for reproducible deployment
 - Add `/status/<package>` API endpoint for verified compatibility checks
 - Set up monitoring/alerting for server health
 - Reduce processor idle churn (currently restarts every 60s even when queue empty)
+- Prepare landing page for lazaruspy.org with install instructions
 - **After first pass**: revisit C-extension packages (numpy, pandas, etc.) — analyze failure reasons, consider build agent with compilers or sourcing pre-built 3.14 wheels
