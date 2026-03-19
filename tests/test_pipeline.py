@@ -356,7 +356,7 @@ class TestFixSetupPyBuildIssues:
             "ver = imp.load_source('ver', 'version.py')\n"
         )
         fixes = _fix_setup_py_build_issues(tmp_path)
-        assert any("load_source" in f for f in fixes)
+        assert any("imp" in f for f in fixes)
         content = setup_py.read_text()
         assert "def load_source" in content
 

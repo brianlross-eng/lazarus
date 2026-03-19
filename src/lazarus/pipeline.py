@@ -340,34 +340,52 @@ def _fix_setup_py_build_issues(source_dir: Path) -> list[str]:
         )
         fixes.append("converted octal literals to 0o prefix")
 
-    # 10. import imp → importlib shim
+    # 10. import imp → importlib shim (with load_source support)
     if re.search(r'^\s*import\s+imp\s*$', source, re.MULTILINE):
         source = re.sub(
             r'^(\s*)import\s+imp\s*$',
             r"""\1try:
 \1    import imp
 \1except ImportError:
-\1    import importlib
+\1    import importlib, importlib.util
 \1    class imp:
 \1        @staticmethod
 \1        def find_module(name, path=None):
 \1            return importlib.util.find_spec(name, path)
 \1        @staticmethod
 \1        def load_module(name, *args):
-\1            return importlib.import_module(name)""",
+\1            return importlib.import_module(name)
+\1        @staticmethod
+\1        def load_source(name, pathname):
+\1            spec = importlib.util.spec_from_file_location(name, pathname)
+\1            mod = importlib.util.module_from_spec(spec)
+\1            spec.loader.exec_module(mod)
+\1            return mod""",
             source,
             flags=re.MULTILINE,
         )
         fixes.append("shimmed 'import imp' with importlib fallback")
-    # from imp import ... → try/except with importlib
+    # from imp import ... → try/except with importlib stubs
     if re.search(r'^\s*from\s+imp\s+import\b', source, re.MULTILINE):
         source = re.sub(
             r'^(\s*)from\s+imp\s+import\s+(.*)$',
-            r'\1try:\n\1    from imp import \2\n\1except ImportError:\n\1    pass',
+            r"""\1try:
+\1    from imp import \2
+\1except ImportError:
+\1    import importlib, importlib.util
+\1    def find_module(name, path=None):
+\1        return importlib.util.find_spec(name, path)
+\1    def load_module(name, *args):
+\1        return importlib.import_module(name)
+\1    def load_source(name, pathname):
+\1        spec = importlib.util.spec_from_file_location(name, pathname)
+\1        mod = importlib.util.module_from_spec(spec)
+\1        spec.loader.exec_module(mod)
+\1        return mod""",
             source,
             flags=re.MULTILINE,
         )
-        fixes.append("wrapped 'from imp import' in try/except")
+        fixes.append("shimmed 'from imp import' with importlib stubs")
 
     # 11. distribute bootstrap guard: if not hasattr(pkg_resources, '_distribute')
     if re.search(r"hasattr\s*\(\s*pkg_resources\s*,\s*['\"]_distribute['\"]\s*\)", source):
@@ -424,34 +442,7 @@ def _fix_setup_py_build_issues(source_dir: Path) -> list[str]:
         source = re.sub(r'\.readfp\s*\(', '.read_file(', source)
         fixes.append("replaced ConfigParser.readfp with read_file")
 
-    # 17. Improve imp shim — add load_source for NameError: name 'load_source'
-    if re.search(r'\bimp\.load_source\b', source) and 'def load_source' not in source:
-        # If we already shimmed imp above, the class needs load_source.
-        # If imp was imported normally but load_source is used, add a fallback.
-        if 'import imp' in source:
-            source = re.sub(
-                r'^(\s*)(import\s+imp\s*)$',
-                r"""\1try:
-\1    import imp
-\1except ImportError:
-\1    import importlib, importlib.util, types
-\1    class imp:
-\1        @staticmethod
-\1        def find_module(name, path=None):
-\1            return importlib.util.find_spec(name, path)
-\1        @staticmethod
-\1        def load_module(name, *args):
-\1            return importlib.import_module(name)
-\1        @staticmethod
-\1        def load_source(name, pathname):
-\1            spec = importlib.util.spec_from_file_location(name, pathname)
-\1            mod = importlib.util.module_from_spec(spec)
-\1            spec.loader.exec_module(mod)
-\1            return mod""",
-                source,
-                flags=re.MULTILINE,
-            )
-            fixes.append("improved imp shim with load_source support")
+    # 17. (merged into #10 — imp shim now includes load_source)
 
     # 18. from setuptools.command.install import INSTALL_SCHEMES (removed)
     if re.search(r'from\s+setuptools\.command\.install\s+import\s+.*INSTALL_SCHEMES', source):
@@ -506,6 +497,54 @@ def _fix_setup_py_build_issues(source_dir: Path) -> list[str]:
             flags=re.MULTILINE,
         )
         fixes.append("converted exec...in to exec()")
+
+    # 23. import distutils → setuptools shim
+    if re.search(r'^\s*import\s+distutils\b', source, re.MULTILINE):
+        source = re.sub(
+            r'^(\s*)import\s+distutils\b(.*)$',
+            r'\1import setuptools as distutils\2',
+            source,
+            flags=re.MULTILINE,
+        )
+        fixes.append("shimmed 'import distutils' with setuptools")
+    if re.search(r'^\s*from\s+distutils\b', source, re.MULTILINE) and 'from setuptools' not in source:
+        source = re.sub(
+            r'^(\s*)from\s+distutils\.(core|extension)\s+import\s+(.*)$',
+            r'\1from setuptools import \3',
+            source,
+            flags=re.MULTILINE,
+        )
+        fixes.append("redirected distutils imports to setuptools")
+
+    # 24. DistributionNotFound from pkg_resources → stub
+    if re.search(r'\bDistributionNotFound\b', source) and 'importlib.metadata' not in source:
+        if re.search(r'from\s+pkg_resources\s+import\s+.*DistributionNotFound', source):
+            source = re.sub(
+                r'^(\s*)from\s+pkg_resources\s+import\s+(.*\bDistributionNotFound\b.*)$',
+                r"""\1try:
+\1    from pkg_resources import \2
+\1except (ImportError, ModuleNotFoundError):
+\1    class DistributionNotFound(Exception):
+\1        pass""",
+                source,
+                flags=re.MULTILINE,
+            )
+            fixes.append("shimmed DistributionNotFound with stub class")
+
+    # 25. ast.Str / ast.Num / ast.Constant.s/.n usage in setup.py (removed in 3.14)
+    if re.search(r'\bast\.Str\b|\bast\.Num\b|\bast\.Bytes\b|\bast\.NameConstant\b', source):
+        source = re.sub(r'\bast\.Str\b', 'ast.Constant', source)
+        source = re.sub(r'\bast\.Num\b', 'ast.Constant', source)
+        source = re.sub(r'\bast\.Bytes\b', 'ast.Constant', source)
+        source = re.sub(r'\bast\.NameConstant\b', 'ast.Constant', source)
+        fixes.append("replaced removed ast node types with ast.Constant")
+    if re.search(r'\.s\b', source) and 'ast.Constant' in source:
+        # ast.Constant.s → ast.Constant.value (same for .n)
+        source = re.sub(r'\bnode\.s\b', 'node.value', source)
+        source = re.sub(r'\bnode\.n\b', 'node.value', source)
+        source = re.sub(r'\.s\b(?=\s*[,\)\]\}:])', '.value', source)
+        source = re.sub(r'\.n\b(?=\s*[,\)\]\}:])', '.value', source)
+        fixes.append("replaced ast.Constant.s/.n with .value")
 
     if source != original:
         setup_py.write_text(source, encoding="utf-8")
