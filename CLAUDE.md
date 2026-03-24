@@ -106,7 +106,7 @@ Matching the auto-fixable analyzer checks above. The escape sequence fixer uses 
   4. Regex rewrites for setup.py, setup.cfg, __init__.py with `__version__ = "..."`
   5. Version regexes use `(?!\.)` negative lookahead (prevents `".".join()` corruption) and `\b` word boundary (prevents `minversion`/`local_version` matches)
 - **Build environment**: `PIP_CONSTRAINT=setuptools<82` ensures pkg_resources remains available in isolated build venvs
-- **Build fixes** (`_fix_setup_py_build_issues`): patches setup.py before build — 22 fix types including pkg_resources imports, pip shims, ez_setup/distribute_setup removal, Python 2 print/except/raise/octal/exec syntax, import imp shim (with load_source), removed setuptools commands, pkgutil.ImpImporter, platform.dist(), ConfigParser.readfp, INSTALL_SCHEMES shim, SafeConfigParser→ConfigParser, collections ABCs→collections.abc, inspect.getargspec→getfullargspec
+- **Build fixes** (`_fix_setup_py_build_issues`): patches setup.py before build — 25 fix types including pkg_resources imports, pip shims, ez_setup/distribute_setup removal, Python 2 print/except/raise/octal/exec syntax, import imp shim (with load_source), removed setuptools commands, pkgutil.ImpImporter, platform.dist(), ConfigParser.readfp, INSTALL_SCHEMES shim, SafeConfigParser→ConfigParser, collections ABCs→collections.abc, inspect.getargspec→getfullargspec, distutils→setuptools shim, DistributionNotFound stub, ast.Str/Num/Bytes/NameConstant→ast.Constant
 - **Archive support**: `.tar.gz`, `.tgz`, `.tar.bz2`, `.tar.xz`, `.zip` — with `_safe_tar_filter()` that silently skips symlinks
 
 ## Batch Processing Results
@@ -131,9 +131,17 @@ Matching the auto-fixable analyzer checks above. The escape sequence fixer uses 
 - Post-batch retry: 200 packages retried with 6 new fix types, 33 recovered
 - Running total: 292,475 queued, 258,023 complete (88.2%), 34,452 failed, 47,633 auto-fixed
 
-### Batch 6: ~18,930 packages — IN PROGRESS
-- Seeded 2026-03-17, ETA ~16h from seed time
+### Batch 6: ~18,930 packages — COMPLETE
 - Running total: 311,405 queued (40.8% of PyPI's 764k)
+
+### Batch 7: ~18,939 packages — COMPLETE
+- Running total: 330,344 queued (43.2% of PyPI's 765k)
+- 291,212 processed / 56,143 modified / 39,132 couldn't modify
+
+### Batch 8: ~36,876 packages — IN PROGRESS
+- Seeded 2026-03-23, ETA ~24-30h
+- Running total: ~367,220 queued (48.0% of PyPI's 765k)
+- ~15k more to reach 50% launch target
 
 ## Database
 - SQLite at `~/.lazarus/queue.db`
@@ -153,7 +161,7 @@ Matching the auto-fixable analyzer checks above. The escape sequence fixer uses 
 - **Email**: admin@lazaruspy.org (Cloudflare Email Routing → personal email)
 - **DNS**: Cloudflare — A record → 89.167.40.82, CNAME www → lazaruspy.org
 - **Server**: Hetzner CX33 (4 vCPU, 8 GB RAM, 80 GB SSD) — Helsinki, Ubuntu 24.04
-- **Storage volume**: 80GB ext4 (`/dev/sdb`) mounted at `/var/lib/devpi` ($4/mo)
+- **Storage volume**: 160GB ext4 (`/dev/sdb`) mounted at `/var/lib/devpi` ($8/mo)
 - **Server IP**: 89.167.40.82 (hostname: lazarus-prod)
 - **Package index URL**: https://lazaruspy.org/simple/
 - **SSL**: Let's Encrypt (auto-renew via certbot)
