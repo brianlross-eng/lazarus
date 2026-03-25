@@ -138,10 +138,14 @@ Matching the auto-fixable analyzer checks above. The escape sequence fixer uses 
 - Running total: 330,344 queued (43.2% of PyPI's 765k)
 - 291,212 processed / 56,143 modified / 39,132 couldn't modify
 
-### Batch 8: ~36,876 packages — IN PROGRESS
-- Seeded 2026-03-23, ETA ~24-30h
-- Running total: ~367,220 queued (48.0% of PyPI's 765k)
-- ~15k more to reach 50% launch target
+### Batch 8: ~36,876 packages — COMPLETE
+- 323,578 processed / 64,507 modified / 43,644 couldn't modify
+- Glean: no new fix types needed — 88.8% failures are wheel-only, 10.7% build-dep errors
+- Running total: 367,222 queued (48.0% of PyPI's 765k)
+
+### Batch 9: ~18,753 packages — IN PROGRESS
+- Seeded 2026-03-24, ETA ~16-20h
+- Running total: 385,975 queued (50.5% of PyPI's 765k) — PASSED 50% TARGET
 
 ## Database
 - SQLite at `~/.lazarus/queue.db`
