@@ -53,10 +53,20 @@ class JobQueue:
         self._conn.close()
 
     def reset_stale_jobs(self) -> int:
-        """Reset any in_progress jobs back to pending (for restart recovery)."""
+        """Reset stale in_progress jobs back to pending, incrementing attempts.
+        Jobs that have hit max_attempts are failed instead (prevents OOM loops)."""
         now = _utcnow()
+        # Fail jobs that have exhausted attempts
+        self._conn.execute(
+            """UPDATE jobs SET status = ?, last_error = ?, updated_at = ?
+               WHERE status = ? AND attempts >= max_attempts""",
+            (JobStatus.FAILED, "Stale: exceeded max_attempts (possible OOM)", now,
+             JobStatus.IN_PROGRESS),
+        )
+        # Reset the rest, incrementing attempts
         cursor = self._conn.execute(
-            "UPDATE jobs SET status = ?, updated_at = ? WHERE status = ?",
+            """UPDATE jobs SET status = ?, attempts = attempts + 1, updated_at = ?
+               WHERE status = ?""",
             (JobStatus.PENDING, now, JobStatus.IN_PROGRESS),
         )
         self._conn.commit()
