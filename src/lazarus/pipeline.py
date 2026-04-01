@@ -62,6 +62,7 @@ SKIP_BUILD_PACKAGES = frozenset({
 SKIP_OOM_PACKAGES = frozenset({
     "cdktf-provider-oci",
     "cosmowap",
+    "scgraph-data",
     "sqlml-parser",
 })
 
