@@ -143,9 +143,16 @@ Matching the auto-fixable analyzer checks above. The escape sequence fixer uses 
 - Glean: no new fix types needed — 88.8% failures are wheel-only, 10.7% build-dep errors
 - Running total: 367,222 queued (48.0% of PyPI's 765k)
 
-### Batch 9: ~18,753 packages — IN PROGRESS
-- Seeded 2026-03-24, ETA ~16-20h
-- Running total: 385,975 queued (50.5% of PyPI's 765k) — PASSED 50% TARGET
+### Batch 9–20: COMPLETE (batches 9 through current)
+- Running total: ~660,605 queued (86.4% of PyPI's 765k)
+- ~594,917 complete / ~80,678 failed (88% success rate, stable)
+- Batch currently running (~1,486 pending as of 2026-05-06)
+- Glean profile unchanged since batch 8: 88% no_sdist, 11% build-dep, <1% other
+- OOM packages added: scgraph-data, terrajinja-imports-akamai (now 5 total in SKIP_OOM_PACKAGES)
+- Disk: root 33% (24G/75G), volume 76% (141G/197G) after cleanup + resize2fs
+- **Agent (Lazarus Project Manager)**: SSH key in authorized_keys, runbook at docs/iris-runbook.md
+  - NEVER run `python -m lazarus admin process` directly — use systemctl only
+  - SSH flags needed: `-o ConnectTimeout=30 -o ServerAliveInterval=10`
 
 ## Database
 - SQLite at `~/.lazarus/queue.db`
