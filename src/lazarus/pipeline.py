@@ -64,6 +64,7 @@ SKIP_OOM_PACKAGES = frozenset({
     "cosmowap",
     "scgraph-data",
     "sqlml-parser",
+    "terrajinja-imports-akamai",
 })
 
 
