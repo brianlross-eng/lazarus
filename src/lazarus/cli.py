@@ -465,8 +465,15 @@ def status() -> None:
 @click.option("--max-jobs", "-n", default=0, help="Max jobs to process (0 = all)")
 @click.option("--auto-only", is_flag=True, help="Only apply auto-fixes (no AI)")
 @click.option("--upload", is_flag=True, help="Upload fixed packages to devpi")
-def process(max_jobs: int, auto_only: bool, upload: bool) -> None:
-    """Run batch processing on the queue."""
+@click.option(
+    "--idle-sleep",
+    default=300,
+    show_default=True,
+    help="Seconds to sleep between polls when queue is empty",
+)
+def process(max_jobs: int, auto_only: bool, upload: bool, idle_sleep: int) -> None:
+    """Run batch processing on the queue (loops internally, sleeping when idle)."""
+    import time
     from lazarus.pipeline import Pipeline
 
     config = get_config()
@@ -483,13 +490,17 @@ def process(max_jobs: int, auto_only: bool, upload: bool) -> None:
         )
 
     try:
-        result = pipeline.run_batch(max_jobs=max_jobs, auto_only=auto_only)
-        uploaded_count = sum(
-            len(r.dists_uploaded) for r in result.results if r.dists_uploaded
-        )
-        console.print(f"\n[bold]Processed {result.processed} package(s)[/]")
-        if uploaded_count:
-            console.print(f"[bold green]Uploaded {uploaded_count} dist(s) to devpi[/]")
+        while True:
+            result = pipeline.run_batch(max_jobs=max_jobs, auto_only=auto_only)
+            uploaded_count = sum(
+                len(r.dists_uploaded) for r in result.results if r.dists_uploaded
+            )
+            console.print(f"\n[bold]Processed {result.processed} package(s)[/]")
+            if uploaded_count:
+                console.print(f"[bold green]Uploaded {uploaded_count} dist(s) to devpi[/]")
+            if result.processed == 0:
+                console.print(f"[dim]Queue empty — sleeping {idle_sleep}s[/]")
+                time.sleep(idle_sleep)
     finally:
         pipeline.close()
 
