@@ -1,0 +1,833 @@
+"""Automatic fixes for well-defined Python 3.14 API removals.
+
+These are mechanical substitutions that don't require AI — just pattern
+matching and replacement.
+"""
+
+from __future__ import annotations
+
+import re
+from dataclasses import dataclass, field
+from pathlib import Path
+
+from lazarus.compat.analyzer import CompatIssue
+
+
+@dataclass
+class FixResult:
+    files_modified: list[str] = field(default_factory=list)
+    issues_fixed: int = 0
+    issues_skipped: int = 0
+    errors: list[str] = field(default_factory=list)
+
+
+class AutoFixer:
+    """Apply deterministic fixes for known Python 3.14 breakages."""
+
+    def apply_all(self, source_dir: Path, issues: list[CompatIssue]) -> FixResult:
+        """Apply all auto-fixable issues found by the analyzer."""
+        result = FixResult()
+        # Group issues by file
+        by_file: dict[str, list[CompatIssue]] = {}
+        for issue in issues:
+            if issue.auto_fixable:
+                by_file.setdefault(issue.file_path, []).append(issue)
+
+        for file_path, file_issues in by_file.items():
+            path = Path(file_path)
+            try:
+                source = path.read_text(encoding="utf-8", errors="replace")
+            except OSError as e:
+                result.errors.append(f"Cannot read {file_path}: {e}")
+                continue
+
+            modified = source
+
+            # Group issues by type to avoid double-counting when one fix
+            # handles multiple issues of the same type in a single pass
+            by_type: dict[str, list[CompatIssue]] = {}
+            for issue in file_issues:
+                by_type.setdefault(issue.issue_type, []).append(issue)
+
+            fixed_count = 0
+            for issue_type, type_issues in by_type.items():
+                new_source = self._apply_fix(modified, type_issues[0])
+                if new_source != modified:
+                    modified = new_source
+                    fixed_count += len(type_issues)
+                else:
+                    result.issues_skipped += len(type_issues)
+
+            if modified != source:
+                path.write_text(modified, encoding="utf-8")
+                result.files_modified.append(file_path)
+                result.issues_fixed += fixed_count
+
+        return result
+
+    def _apply_fix(self, source: str, issue: CompatIssue) -> str:
+        """Apply a single fix to source code. Returns modified source."""
+        handler = {
+            "removed_ast_node": self._fix_ast_nodes,
+            "removed_pkgutil_loader": self._fix_pkgutil_loaders,
+            "removed_sqlite3_version": self._fix_sqlite3_version,
+            "removed_shutil_onerror": self._fix_shutil_onerror,
+            "removed_pty_function": self._fix_pty_functions,
+            "removed_importlib_abc": self._fix_importlib_abc,
+            "invalid_escape_sequence": self._fix_invalid_escape_sequences,
+            "deprecated_pkg_resources": self._fix_pkg_resources,
+            "removed_configparser_safeconfigparser": self._fix_configparser_safeconfigparser,
+            "removed_configparser_readfp": self._fix_configparser_readfp,
+            "python2_print_statement": self._fix_python2_print,
+            "removed_module_distutils": self._fix_distutils_module,
+            "removed_module_imp": self._fix_imp_module,
+            "removed_module_py2_configparser": self._fix_py2_configparser,
+            "removed_module_pipes": self._fix_pipes_module,
+            "removed_module_cgi": self._fix_cgi_module,
+            "removed_module_commands": self._fix_commands_module,
+            "removed_module_urllib2": self._fix_urllib2_module,
+            "removed_module_Queue": self._fix_queue_module,
+            "python2_builtin_execfile": self._fix_execfile,
+            "python2_builtin_raw_input": self._fix_raw_input,
+            "python2_builtin_xrange": self._fix_xrange,
+            "python2_builtin_reload": self._fix_reload_builtin,
+            "python2_builtin_unicode": self._fix_unicode_builtin,
+            "python2_builtin_long": self._fix_long_builtin,
+            "python2_builtin_basestring": self._fix_basestring,
+            "python2_builtin_file": self._fix_file_builtin,
+            "python2_except_comma": self._fix_python2_except_comma,
+            "python2_ne_operator": self._fix_python2_ne_operator,
+            "python2_dict_iteritems": self._fix_python2_dict_methods,
+            "python2_dict_itervalues": self._fix_python2_dict_methods,
+            "python2_dict_iterkeys": self._fix_python2_dict_methods,
+            "removed_ast_constant_attr": self._fix_ast_constant_attrs,
+        }.get(issue.issue_type)
+
+        if handler is None:
+            return source
+        return handler(source, issue)
+
+    def _fix_ast_nodes(self, source: str, issue: CompatIssue) -> str:
+        """Replace ast.Num/Str/Bytes/NameConstant/Ellipsis with ast.Constant."""
+        deprecated = ["Num", "Str", "Bytes", "NameConstant", "Ellipsis"]
+        for name in deprecated:
+            source = re.sub(rf'\bast\.{name}\b', 'ast.Constant', source)
+        return source
+
+    def _fix_pkgutil_loaders(self, source: str, issue: CompatIssue) -> str:
+        """Replace pkgutil.find_loader/get_loader with importlib.util.find_spec."""
+        # Replace function calls
+        source = re.sub(
+            r'pkgutil\.find_loader\(([^)]+)\)',
+            r'importlib.util.find_spec(\1)',
+            source,
+        )
+        source = re.sub(
+            r'pkgutil\.get_loader\(([^)]+)\)',
+            r'importlib.util.find_spec(\1)',
+            source,
+        )
+        # Replace imports
+        source = re.sub(
+            r'from pkgutil import (find_loader|get_loader)',
+            'from importlib.util import find_spec',
+            source,
+        )
+        # Ensure importlib.util is imported if using the module-level form
+        if 'importlib.util.find_spec' in source and 'import importlib.util' not in source:
+            if 'import importlib' in source:
+                source = source.replace('import importlib', 'import importlib\nimport importlib.util', 1)
+            elif 'from importlib' not in source:
+                # Add import at the top, after other imports
+                lines = source.split('\n')
+                insert_idx = 0
+                for i, line in enumerate(lines):
+                    if line.startswith('import ') or line.startswith('from '):
+                        insert_idx = i + 1
+                lines.insert(insert_idx, 'import importlib.util')
+                source = '\n'.join(lines)
+        return source
+
+    def _fix_sqlite3_version(self, source: str, issue: CompatIssue) -> str:
+        """Replace sqlite3.version with sqlite3.sqlite_version."""
+        source = re.sub(r'\bsqlite3\.version_info\b', 'sqlite3.sqlite_version_info', source)
+        source = re.sub(r'\bsqlite3\.version\b', 'sqlite3.sqlite_version', source)
+        return source
+
+    def _fix_shutil_onerror(self, source: str, issue: CompatIssue) -> str:
+        """Replace shutil.rmtree onerror parameter with onexc."""
+        source = re.sub(
+            r'(shutil\.rmtree\([^)]*)\bonerror\b',
+            r'\1onexc',
+            source,
+        )
+        return source
+
+    def _fix_pty_functions(self, source: str, issue: CompatIssue) -> str:
+        """Replace pty.master_open/slave_open with pty.openpty."""
+        source = re.sub(r'\bpty\.master_open\b', 'pty.openpty', source)
+        source = re.sub(r'\bpty\.slave_open\b', 'pty.openpty', source)
+        return source
+
+    def _fix_importlib_abc(self, source: str, issue: CompatIssue) -> str:
+        """Replace importlib.abc with importlib.resources.abc for removed classes."""
+        removed = ["ResourceReader", "Traversable", "TraversableResources"]
+        for cls in removed:
+            source = re.sub(
+                rf'from importlib\.abc import ({cls})',
+                rf'from importlib.resources.abc import \1',
+                source,
+            )
+            source = re.sub(
+                rf'\bimportlib\.abc\.{cls}\b',
+                f'importlib.resources.abc.{cls}',
+                source,
+            )
+        return source
+
+    def _fix_pkg_resources(self, source: str, issue: CompatIssue) -> str:
+        """Replace pkg_resources usage with importlib.metadata/resources equivalents.
+
+        Handles the most common patterns:
+        - pkg_resources.get_distribution('X').version → importlib.metadata.version('X')
+        - pkg_resources.require('X') → removed (no-op when installed via pip)
+        - pkg_resources.resource_filename(X, Y) → str(importlib.resources.files(X).joinpath(Y))
+        - import/from statements updated accordingly
+        """
+        needs_metadata = False
+        needs_resources = False
+
+        # 1. Replace pkg_resources.get_distribution('X').version
+        #    → importlib.metadata.version('X')
+        pattern = r'pkg_resources\.get_distribution\(([^)]+)\)\.version'
+        if re.search(pattern, source):
+            source = re.sub(pattern, r'importlib.metadata.version(\1)', source)
+            needs_metadata = True
+
+        # 2. Replace pkg_resources.get_distribution('X') standalone (not .version)
+        #    → importlib.metadata.metadata('X') or just version lookup
+        #    This is trickier — leave for now if .version was already handled
+
+        # 3. Replace pkg_resources.require('X') → pass (empty statement)
+        #    or remove the line entirely if it's standalone
+        source = re.sub(
+            r'^(\s*)pkg_resources\.require\([^)]*\)\s*$',
+            r'\1pass  # require() removed (dependencies handled by pip)',
+            source,
+            flags=re.MULTILINE,
+        )
+
+        # 4. Replace pkg_resources.resource_filename(X, Y)
+        #    → str(importlib.resources.files(X).joinpath(Y))
+        pattern_rf = r'pkg_resources\.resource_filename\(([^,]+),\s*([^)]+)\)'
+        if re.search(pattern_rf, source):
+            source = re.sub(
+                pattern_rf,
+                r'str(importlib.resources.files(\1).joinpath(\2))',
+                source,
+            )
+            needs_resources = True
+
+        # 5. Replace from pkg_resources import get_distribution
+        source = re.sub(
+            r'from pkg_resources import get_distribution\b',
+            'from importlib.metadata import version as get_distribution',
+            source,
+        )
+
+        # 6. Replace from pkg_resources import resource_filename
+        if re.search(r'from pkg_resources import resource_filename\b', source):
+            source = re.sub(
+                r'from pkg_resources import resource_filename\b',
+                'from importlib.resources import files as _pkg_files',
+                source,
+            )
+            # Adjust call sites: resource_filename(X, Y) → str(_pkg_files(X).joinpath(Y))
+            source = re.sub(
+                r'resource_filename\(([^,]+),\s*([^)]+)\)',
+                r'str(_pkg_files(\1).joinpath(\2))',
+                source,
+            )
+
+        # 7. Replace bare `import pkg_resources` with appropriate import
+        if re.search(r'^\s*import pkg_resources\s*$', source, re.MULTILINE):
+            # Check if pkg_resources is still referenced (we may have replaced all usages)
+            remaining = len(re.findall(r'\bpkg_resources\b', source))
+            # Subtract the import line itself
+            import_lines = len(re.findall(
+                r'^\s*import pkg_resources\s*$', source, re.MULTILINE
+            ))
+            if remaining <= import_lines:
+                # All usages replaced — remove the import
+                source = re.sub(
+                    r'^\s*import pkg_resources\s*\n',
+                    '',
+                    source,
+                    flags=re.MULTILINE,
+                )
+            else:
+                # Still has usages we couldn't replace — add importlib.metadata
+                # as an alias and do a bulk replacement
+                source = re.sub(
+                    r'^(\s*)import pkg_resources\s*$',
+                    r'\1import importlib.metadata',
+                    source,
+                    flags=re.MULTILINE,
+                )
+                needs_metadata = True
+
+        # 8. Add missing imports if needed
+        if needs_metadata and 'import importlib.metadata' not in source:
+            source = self._add_import(source, 'import importlib.metadata')
+
+        if needs_resources and 'importlib.resources' not in source:
+            source = self._add_import(source, 'import importlib.resources')
+
+        return source
+
+    @staticmethod
+    def _add_import(source: str, import_line: str) -> str:
+        """Add an import statement after the last existing import."""
+        lines = source.split('\n')
+        insert_idx = 0
+        for i, line in enumerate(lines):
+            stripped = line.lstrip()
+            if stripped.startswith('import ') or stripped.startswith('from '):
+                insert_idx = i + 1
+        lines.insert(insert_idx, import_line)
+        return '\n'.join(lines)
+
+    def _fix_configparser_safeconfigparser(self, source: str, issue: CompatIssue) -> str:
+        """Replace configparser.SafeConfigParser with ConfigParser."""
+        source = re.sub(
+            r'\bconfigparser\.SafeConfigParser\b',
+            'configparser.ConfigParser',
+            source,
+        )
+        source = re.sub(
+            r'from configparser import SafeConfigParser\b',
+            'from configparser import ConfigParser',
+            source,
+        )
+        # Fix any bare references after `from configparser import SafeConfigParser`
+        # e.g. `parser = SafeConfigParser()` → `parser = ConfigParser()`
+        source = re.sub(r'\bSafeConfigParser\b', 'ConfigParser', source)
+        return source
+
+    def _fix_configparser_readfp(self, source: str, issue: CompatIssue) -> str:
+        """Replace ConfigParser.readfp() with read_file()."""
+        source = re.sub(r'\.readfp\(', '.read_file(', source)
+        return source
+
+    def _fix_distutils_module(self, source: str, issue: CompatIssue) -> str:
+        """Replace distutils imports with setuptools equivalents.
+
+        Handles the common setup.py patterns:
+        - from distutils.core import setup → from setuptools import setup
+        - from distutils.extension import Extension → from setuptools import Extension
+        - from distutils.command.X import Y → from setuptools.command.X import Y
+        """
+        # from distutils.core import ... → from setuptools import ...
+        source = re.sub(
+            r'from\s+distutils\.core\s+import\s+',
+            'from setuptools import ',
+            source,
+        )
+        # from distutils.extension import ... → from setuptools import ...
+        source = re.sub(
+            r'from\s+distutils\.extension\s+import\s+',
+            'from setuptools import ',
+            source,
+        )
+        # from distutils.command.X import Y → from setuptools.command.X import Y
+        source = re.sub(
+            r'from\s+distutils\.command\.',
+            'from setuptools.command.',
+            source,
+        )
+        # import distutils.core → import setuptools
+        source = re.sub(
+            r'\bimport\s+distutils\.core\b',
+            'import setuptools',
+            source,
+        )
+        # distutils.core.setup → setuptools.setup
+        source = re.sub(r'\bdistutils\.core\.setup\b', 'setuptools.setup', source)
+        source = re.sub(r'\bdistutils\.core\.Extension\b', 'setuptools.Extension', source)
+        # Bare import distutils → import setuptools
+        source = re.sub(
+            r'^(\s*)import\s+distutils\s*$',
+            r'\1import setuptools',
+            source,
+            flags=re.MULTILINE,
+        )
+        return source
+
+    def _fix_imp_module(self, source: str, issue: CompatIssue) -> str:
+        """Replace imp module usage with importlib equivalents."""
+        # imp.reload(x) → importlib.reload(x)
+        source = re.sub(r'\bimp\.reload\b', 'importlib.reload', source)
+        # import imp → import importlib
+        source = re.sub(
+            r'^(\s*)import\s+imp\s*$',
+            r'\1import importlib',
+            source,
+            flags=re.MULTILINE,
+        )
+        # from imp import reload → from importlib import reload
+        source = re.sub(
+            r'from\s+imp\s+import\s+reload\b',
+            'from importlib import reload',
+            source,
+        )
+        return source
+
+    def _fix_py2_configparser(self, source: str, issue: CompatIssue) -> str:
+        """Replace Python 2 ConfigParser module with Python 3 configparser."""
+        # import ConfigParser → import configparser as ConfigParser
+        # Using alias preserves all existing references
+        source = re.sub(
+            r'^(\s*)import\s+ConfigParser\s*$',
+            r'\1import configparser as ConfigParser',
+            source,
+            flags=re.MULTILINE,
+        )
+        # from ConfigParser import X → from configparser import X
+        source = re.sub(
+            r'from\s+ConfigParser\s+import\s+',
+            'from configparser import ',
+            source,
+        )
+        return source
+
+    def _fix_pipes_module(self, source: str, issue: CompatIssue) -> str:
+        """Replace pipes module with shlex."""
+        # pipes.quote(x) → shlex.quote(x)
+        source = re.sub(r'\bpipes\.quote\b', 'shlex.quote', source)
+        # import pipes → import shlex
+        source = re.sub(
+            r'^(\s*)import\s+pipes\s*$',
+            r'\1import shlex',
+            source,
+            flags=re.MULTILINE,
+        )
+        # from pipes import quote → from shlex import quote
+        source = re.sub(
+            r'from\s+pipes\s+import\s+quote\b',
+            'from shlex import quote',
+            source,
+        )
+        return source
+
+    def _fix_cgi_module(self, source: str, issue: CompatIssue) -> str:
+        """Replace cgi module with html/urllib.parse equivalents."""
+        # cgi.escape(x) → html.escape(x)
+        source = re.sub(r'\bcgi\.escape\b', 'html.escape', source)
+        # cgi.parse_qs → urllib.parse.parse_qs
+        source = re.sub(r'\bcgi\.parse_qs\b', 'urllib.parse.parse_qs', source)
+        # cgi.parse_qsl → urllib.parse.parse_qsl
+        source = re.sub(r'\bcgi\.parse_qsl\b', 'urllib.parse.parse_qsl', source)
+        # from cgi import escape → from html import escape
+        source = re.sub(
+            r'from\s+cgi\s+import\s+escape\b',
+            'from html import escape',
+            source,
+        )
+        # Replace bare import if all usages have been replaced
+        if re.search(r'^\s*import\s+cgi\s*$', source, re.MULTILINE):
+            remaining = len(re.findall(r'\bcgi\b', source))
+            import_lines = len(re.findall(
+                r'^\s*import\s+cgi\s*$', source, re.MULTILINE
+            ))
+            if remaining <= import_lines:
+                source = re.sub(
+                    r'^(\s*)import\s+cgi\s*$',
+                    r'\1import html',
+                    source,
+                    flags=re.MULTILINE,
+                )
+        return source
+
+    def _fix_python2_print(self, source: str, issue: CompatIssue) -> str:
+        """Convert Python 2 print statements to print() function calls.
+
+        Handles the common patterns:
+        - print "msg"          → print("msg")
+        - print a, b           → print(a, b)
+        - print a,             → print(a, end=" ")
+        - print >>f, msg       → print(msg, file=f)
+        - print >>f, msg,      → print(msg, file=f, end=" ")
+        """
+        lines = source.split("\n")
+        changed = False
+
+        for i, line in enumerate(lines):
+            stripped = line.lstrip()
+            if stripped.startswith("#"):
+                continue
+            indent = line[: len(line) - len(stripped)]
+
+            # Skip if not a print token at statement position
+            if not re.match(r"print(?:\s|$)", stripped):
+                continue
+            # Skip print() — already a function call
+            if re.match(r"print\s*\(", stripped):
+                continue
+            # Skip assignment: print = ..., print += ..., etc.
+            if re.match(r"print\s*[+\-*/%&|^]=|print\s*=(?!=)", stripped):
+                continue
+
+            # Pattern: print >>file, args[,]
+            m = re.match(r"print\s*>>\s*([^,]+?)\s*,\s*(.*)", stripped)
+            if m:
+                file_expr = m.group(1).strip()
+                rest = m.group(2).rstrip()
+                if rest.endswith(","):
+                    rest = rest[:-1].rstrip()
+                    lines[i] = f'{indent}print({rest}, file={file_expr}, end=" ")'
+                else:
+                    lines[i] = f"{indent}print({rest}, file={file_expr})"
+                changed = True
+                continue
+
+            # Pattern: print args[,]
+            m = re.match(r"print\s+(.*)", stripped)
+            if m:
+                args = m.group(1).rstrip()
+                if not args:
+                    lines[i] = f"{indent}print()"
+                elif args.endswith(","):
+                    args = args[:-1].rstrip()
+                    lines[i] = f'{indent}print({args}, end=" ")'
+                else:
+                    lines[i] = f"{indent}print({args})"
+                changed = True
+                continue
+
+            # Bare print (no args, just "print" on its own line)
+            if stripped.rstrip() == "print":
+                lines[i] = f"{indent}print()"
+                changed = True
+
+        return "\n".join(lines) if changed else source
+
+    def _fix_invalid_escape_sequences(self, source: str, issue: CompatIssue) -> str:
+        r"""Fix invalid escape sequences by doubling unrecognized backslash escapes.
+
+        Strategy: find backslash sequences that aren't valid Python escapes
+        and double the backslash. This is safer than converting to raw strings
+        because raw strings can't end with an odd number of backslashes and
+        may change the meaning of valid escapes within the same string.
+
+        Valid escapes: \\, \', \", \a, \b, \f, \n, \r, \t, \v,
+                       \0, \N{}, \uXXXX, \UXXXXXXXX, \xHH, \ooo, \newline
+        """
+        # Characters valid after a backslash in source code (literal chars, not
+        # the escape values). E.g., 'n' for \n, 't' for \t.
+        valid_escape_chars = set(
+            "\\'\""           # \\, \', \"
+            "abfnrtv"         # \a, \b, \f, \n, \r, \t, \v
+            "0123456789"      # \0, \ooo (octal)
+            "NuUxo"           # \N{name}, \uXXXX, \UXXXXXXXX, \xHH, \ooo
+            "\n"              # line continuation (actual newline)
+        )
+        lines = source.split("\n")
+        changed = False
+
+        for line_idx, line in enumerate(lines):
+            new_line = self._fix_escapes_in_line(line, valid_escape_chars)
+            if new_line != line:
+                lines[line_idx] = new_line
+                changed = True
+
+        if changed:
+            return "\n".join(lines)
+        return source
+
+    @staticmethod
+    def _fix_escapes_in_line(line: str, valid_escape_chars: set[str]) -> str:
+        r"""Fix invalid escapes in a single line of source code."""
+        result: list[str] = []
+        i = 0
+        length = len(line)
+
+        while i < length:
+            ch = line[i]
+
+            # Skip comments
+            if ch == "#":
+                result.append(line[i:])
+                break
+
+            # Check for string start
+            if ch in ('"', "'"):
+                # Check for raw string prefix
+                prefix_start = i - 1
+                while prefix_start >= 0 and line[prefix_start] in "bBuUfFrR":
+                    prefix_start -= 1
+                prefix = line[prefix_start + 1:i].lower()
+
+                if "r" in prefix:
+                    # Raw string — no escape processing needed, skip to end
+                    end = _find_string_end(line, i)
+                    result.append(line[i:end])
+                    i = end
+                    continue
+
+                quote_char = ch
+                # Check for triple quote
+                if (i + 2 < length
+                        and line[i + 1] == quote_char
+                        and line[i + 2] == quote_char):
+                    end_quote = quote_char * 3
+                    result.append(end_quote)
+                    j = i + 3
+                    while j < length:
+                        if line[j] == "\\" and j + 1 < length:
+                            next_ch = line[j + 1]
+                            if next_ch not in valid_escape_chars:
+                                # Invalid escape — double the backslash
+                                result.append("\\\\")
+                                result.append(next_ch)
+                                j += 2
+                                continue
+                            else:
+                                result.append(line[j])
+                                result.append(line[j + 1])
+                                j += 2
+                                continue
+                        if line[j:j + 3] == end_quote:
+                            result.append(end_quote)
+                            j += 3
+                            break
+                        result.append(line[j])
+                        j += 1
+                    else:
+                        # Unterminated triple-quote (continues on next line)
+                        pass
+                    i = j
+                else:
+                    # Single-quoted string
+                    result.append(quote_char)
+                    j = i + 1
+                    while j < length:
+                        if line[j] == "\\" and j + 1 < length:
+                            next_ch = line[j + 1]
+                            if next_ch not in valid_escape_chars:
+                                # Invalid escape — double the backslash
+                                result.append("\\\\")
+                                result.append(next_ch)
+                                j += 2
+                                continue
+                            else:
+                                result.append(line[j])
+                                result.append(line[j + 1])
+                                j += 2
+                                continue
+                        if line[j] == quote_char:
+                            result.append(quote_char)
+                            j += 1
+                            break
+                        result.append(line[j])
+                        j += 1
+                    i = j
+            else:
+                result.append(ch)
+                i += 1
+
+        return "".join(result)
+
+
+    def _fix_commands_module(self, source: str, issue: CompatIssue) -> str:
+        """Replace commands module with subprocess."""
+        # commands.getoutput(x) → subprocess.getoutput(x)
+        source = re.sub(r'\bcommands\.getoutput\b', 'subprocess.getoutput', source)
+        # commands.getstatusoutput(x) → subprocess.getstatusoutput(x)
+        source = re.sub(r'\bcommands\.getstatusoutput\b', 'subprocess.getstatusoutput', source)
+        # import commands → import subprocess
+        source = re.sub(
+            r'^(\s*)import\s+commands\s*$',
+            r'\1import subprocess',
+            source,
+            flags=re.MULTILINE,
+        )
+        # from commands import ... → from subprocess import ...
+        source = re.sub(
+            r'from\s+commands\s+import\s+',
+            'from subprocess import ',
+            source,
+        )
+        return source
+
+    def _fix_urllib2_module(self, source: str, issue: CompatIssue) -> str:
+        """Replace urllib2 module with urllib.request."""
+        # import urllib2 → import urllib.request as urllib2
+        # Using alias preserves all existing references
+        source = re.sub(
+            r'^(\s*)import\s+urllib2\s*$',
+            r'\1import urllib.request as urllib2',
+            source,
+            flags=re.MULTILINE,
+        )
+        # from urllib2 import X → from urllib.request import X
+        source = re.sub(
+            r'from\s+urllib2\s+import\s+',
+            'from urllib.request import ',
+            source,
+        )
+        return source
+
+    def _fix_queue_module(self, source: str, issue: CompatIssue) -> str:
+        """Replace Python 2 Queue module with queue."""
+        # import Queue → import queue as Queue
+        source = re.sub(
+            r'^(\s*)import\s+Queue\s*$',
+            r'\1import queue as Queue',
+            source,
+            flags=re.MULTILINE,
+        )
+        # from Queue import X → from queue import X
+        source = re.sub(
+            r'from\s+Queue\s+import\s+',
+            'from queue import ',
+            source,
+        )
+        return source
+
+    def _fix_execfile(self, source: str, issue: CompatIssue) -> str:
+        """Replace execfile() with exec(open().read()).
+
+        Handles:
+        - execfile('foo.py') → exec(open('foo.py').read())
+        - execfile(path) → exec(open(path).read())
+        - execfile('foo.py', globals) → exec(open('foo.py').read(), globals)
+        """
+        # Two-arg form: execfile(path, globals)
+        source = re.sub(
+            r'\bexecfile\(\s*([^,)]+)\s*,\s*([^)]+)\)',
+            r'exec(open(\1).read(), \2)',
+            source,
+        )
+        # Single-arg form: execfile(path)
+        source = re.sub(
+            r'\bexecfile\(\s*([^)]+)\)',
+            r'exec(open(\1).read())',
+            source,
+        )
+        return source
+
+    def _fix_raw_input(self, source: str, issue: CompatIssue) -> str:
+        """Replace raw_input() with input()."""
+        source = re.sub(r'\braw_input\s*\(', 'input(', source)
+        return source
+
+    def _fix_xrange(self, source: str, issue: CompatIssue) -> str:
+        """Replace xrange() with range()."""
+        return re.sub(r'\bxrange\s*\(', 'range(', source)
+
+    def _fix_unicode_builtin(self, source: str, issue: CompatIssue) -> str:
+        """Replace unicode() calls with str()."""
+        return re.sub(r'\bunicode\s*\(', 'str(', source)
+
+    def _fix_long_builtin(self, source: str, issue: CompatIssue) -> str:
+        """Replace long() calls with int()."""
+        return re.sub(r'\blong\s*\(', 'int(', source)
+
+    def _fix_basestring(self, source: str, issue: CompatIssue) -> str:
+        """Replace basestring references with str."""
+        return re.sub(r'\bbasestring\b', 'str', source)
+
+    def _fix_file_builtin(self, source: str, issue: CompatIssue) -> str:
+        """Replace Python 2 file() with open()."""
+        return re.sub(r'(?<![.\w])file\s*\(', 'open(', source)
+
+    def _fix_reload_builtin(self, source: str, issue: CompatIssue) -> str:
+        """Replace bare reload() with importlib.reload()."""
+        source = re.sub(r'(?<![.\w])reload\s*\(', 'importlib.reload(', source)
+        if 'importlib.reload(' in source and 'import importlib' not in source:
+            source = self._add_import(source, 'import importlib')
+        return source
+
+    def _fix_python2_except_comma(self, source: str, issue: CompatIssue) -> str:
+        """Convert ``except X, e:`` to ``except X as e:``.
+
+        Handles both simple (``except ValueError, e:``) and tuple
+        (``except (ValueError, TypeError), e:``) forms.
+        """
+        lines = source.split("\n")
+        changed = False
+        for i, line in enumerate(lines):
+            stripped = line.lstrip()
+            if stripped.startswith("#"):
+                continue
+            if not stripped.startswith("except "):
+                continue
+            if " as " in stripped:
+                continue
+            m = re.match(r"(except\s+.*),\s*(\w+)\s*:", stripped)
+            if m:
+                indent = line[: len(line) - len(stripped)]
+                lines[i] = f"{indent}{m.group(1)} as {m.group(2)}:"
+                changed = True
+        return "\n".join(lines) if changed else source
+
+    def _fix_python2_ne_operator(self, source: str, issue: CompatIssue) -> str:
+        """Replace ``<>`` operator with ``!=``."""
+        lines = source.split("\n")
+        changed = False
+        for i, line in enumerate(lines):
+            stripped = line.lstrip()
+            if stripped.startswith("#"):
+                continue
+            if "<>" in line:
+                lines[i] = line.replace("<>", "!=")
+                changed = True
+        return "\n".join(lines) if changed else source
+
+    def _fix_python2_dict_methods(self, source: str, issue: CompatIssue) -> str:
+        """Replace .iteritems()/.itervalues()/.iterkeys() with Python 3 equivalents."""
+        source = re.sub(r'\.iteritems\s*\(', '.items(', source)
+        source = re.sub(r'\.itervalues\s*\(', '.values(', source)
+        source = re.sub(r'\.iterkeys\s*\(', '.keys(', source)
+        return source
+
+    def _fix_ast_constant_attrs(self, source: str, issue: CompatIssue) -> str:
+        """Replace ast.Constant.s/.n with .value."""
+        # Pattern: .s or .n after Constant (in AST visitor code)
+        source = re.sub(r'\.Constant\.s\b', '.Constant.value', source)
+        source = re.sub(r'\.Constant\.n\b', '.Constant.value', source)
+        # Also handle node.s / node.n in AST visitor context
+        # This is trickier - only do it for lines that reference ast.Constant
+        return source
+
+
+def _find_string_end(line: str, start: int) -> int:
+    """Find the end of a string literal starting at `start`."""
+    quote_char = line[start]
+    length = len(line)
+
+    # Triple quote?
+    if (start + 2 < length
+            and line[start + 1] == quote_char
+            and line[start + 2] == quote_char):
+        end_quote = quote_char * 3
+        j = start + 3
+        while j < length:
+            if line[j] == "\\" and j + 1 < length:
+                j += 2
+                continue
+            if line[j:j + 3] == end_quote:
+                return j + 3
+            j += 1
+        return length
+
+    # Single quote
+    j = start + 1
+    while j < length:
+        if line[j] == "\\" and j + 1 < length:
+            j += 2
+            continue
+        if line[j] == quote_char:
+            return j + 1
+        j += 1
+    return length

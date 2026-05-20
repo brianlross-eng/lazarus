@@ -1,0 +1,131 @@
+# Changelog
+
+All notable changes to Lazarus will be documented in this file.
+
+Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
+Versioning follows [PEP 440](https://peps.python.org/pep-0440/) and [Semantic Versioning](https://semver.org/).
+
+---
+
+## [Unreleased] — toward 1.0.0a2
+
+### Added
+- **DevpiUploader** — full devpi upload support with native auth protocol
+  (login → session token → base64(user:token) X-Devpi-Auth → multipart file upload)
+- **Upload integration in pipeline** — fixed packages now get published to devpi
+  after build, completing the fetch → analyze → fix → build → **publish** loop
+- **`--upload` CLI flag** — `lazarus admin process --upload` enables publishing
+- **`LAZARUS_UPLOAD` env var** — enable uploads via environment
+- **`LAZARUS_DEVPI_INDEX` env var** — configure devpi index name
+- **Token retry logic** — uploader re-authenticates on 401 (expired tokens)
+- **Expanded analyzer** — 22 check types (was 11):
+  - `python2_builtin_*` — detects `execfile()`, `raw_input()`, `xrange()`, `file()`, etc. (text-based)
+  - `python2_builtin_basestring` — basestring → str
+  - `removed_module_*` — detects `urllib2`, `Queue`, `commands` imports (text-based)
+  - `removed_ast_constant_attr` — detects `ast.Constant.s`/`.n` attribute access
+  - `python2_except_comma` — `except X, e:` syntax
+  - `python2_ne_operator` — `<>` operator
+  - `python2_dict_*` — `.iteritems()`/`.itervalues()`/`.iterkeys()`
+- **Expanded auto-fixer** — 22 fix handlers (was 7), matching all auto-fixable analyzer checks
+- **`.tar.bz2` / `.tar.xz` archive support** — extract sdists in bzip2 and xz formats
+- **Symlink-safe tar extraction** — `_safe_tar_filter()` silently skips symlinks/hardlinks
+  instead of raising `FilterError`
+- **ez_setup / distribute_setup removal** — strips obsolete setuptools bootstrap from setup.py
+- **`file()` builtin fixer** — `file(...)` → `open(...)`
+- **`normalize_version()`** — sanitizes non-PEP-440 version strings (leading v, hyphens, dev markers)
+- **`admin retry-failures` command** — reprocess failed jobs by error pattern with `--dry-run`, `--pattern`, `--limit`
+- **Queue methods** — `get_failed_by_pattern()`, `reset_failed_by_pattern()` for targeted failure recovery
+- **Missing build files helper** — creates stub files (requirements.txt, README, VERSION) referenced in setup.py
+- **Watchdog cleanup** — auto-cleans orphaned work dirs (>30min) and stale cache (>1hr)
+- **65 new tests** (240 total)
+- **SKIP_OOM_PACKAGES** — early bail-out for packages that OOM-kill the processor (cosmowap, sqlml-parser)
+
+### Changed
+- Config defaults: `devpi_url` → `http://localhost:3141`, `devpi_index` → `lazarus/packages`
+- Config: added `upload_enabled` flag (default: off, requires explicit opt-in)
+- Pipeline: `ProcessResult.dists_uploaded` tracks what was published
+- `lazarus_version()` now normalizes input before processing (handles non-PEP-440 strings)
+
+### Fixed
+- **devpi auth encoding** — X-Devpi-Auth requires base64(user:token), not plain text
+- **Dynamic version packages** — packages with `dynamic = ["version"]` (flit, hatchling)
+  now get version set statically in pyproject.toml before build
+- **SETUPTOOLS_SCM_PRETEND_VERSION** — passed to build env for git-tag-based versions
+- **PKG-INFO rewriting** — sdist metadata rewritten as universal fallback
+- **Test skip logic** — only skip `__init__.py` in dirs starting with "test", not paths
+  containing "test" anywhere
+- **nginx proxy** — added `/+f/` and `/%2Bf/` routes for devpi file downloads
+- **Version rewrite safety** — `(?!\.)` prevents `".".join()` corruption, `\b` prevents `minversion`/`local_version` matches
+- **Version rewrite inside strings** — `(?<!["\'])` lookbehind prevents matching `version = "..."` inside string operations like `line.replace("version = ", "")`
+
+### Batch Results
+#### Batch 1+2: 158,654 packages — COMPLETE
+- 140,978 complete (88.9%), ~15,500 auto-fixed
+- 17,676 failed (~16,400 no sdist, ~1,300 other)
+- Retry passes recovered 310 additional packages
+
+#### Batch 3: 57,461 packages — COMPLETE
+- 50,016 completed (87.0%)
+- 7,445 failed
+- Running total: 216,115 queued, 191,022 complete (88.4%)
+#### Batch 4: 57,313 packages — IN PROGRESS- 273,428 total queued, 234,039 complete (85.6%)- sqlml-parser OOM blocked processing ~24h — added SKIP_OOM_PACKAGES
+
+---
+
+## [1.0.0a1] — 2026-02-20
+
+First alpha release. End-to-end pipeline operational: fetch → analyze → fix → build,
+with a live production server processing packages unattended.
+
+### Added
+- **Static analyzer** with 11 compatibility check types for Python 3.14 removals
+  - `removed_ast_node` — ast.Num/Str/Bytes/NameConstant/Ellipsis
+  - `removed_asyncio_watcher` — child watcher APIs
+  - `removed_pkgutil_loader` — find_loader/get_loader
+  - `removed_sqlite3_version` — sqlite3.version
+  - `removed_urllib_class` — URLopener/FancyURLopener
+  - `removed_importlib_abc` — ResourceReader/Traversable
+  - `removed_shutil_onerror` — onerror parameter
+  - `pathlib_extra_args` — multiple args to relative_to/is_relative_to
+  - `removed_pty_function` — master_open/slave_open
+  - `deprecated_pkg_resources` — pkg_resources imports
+  - `invalid_escape_sequence` — unrecognized backslash escapes in strings
+- **Auto-fixer** with 7 mechanical fix handlers (escape sequence fixer uses
+  character-by-character state machine)
+- **Claude AI fixer** for complex compatibility issues
+- **Pipeline orchestrator** — fetch → analyze → fix → build flow with ProcessResult/BatchResult
+- **Job queue** — SQLite-backed with WAL mode, atomic claiming, priority ordering
+- **Schema migrations** — integer-versioned, forward-only
+- **Watchdog supervisor** — monitors stale jobs, auto-restarts processor
+- **CLI** — Click-based with `raise/remove/search/list/inspect/pray` + `admin` subcommands
+- **PyPI client** — JSON API integration, sdist download/extract (httpx)
+- **Top packages seeder** — fetches top-N from hugovk dataset
+- **Version rewriter** — PEP 440 `.post314` suffixes
+- **Package builder** — sdist/wheel via PEP 517
+- **C-extension detection** — `SKIP_BUILD_PACKAGES` frozenset + `_has_c_extensions()` heuristic
+- **needs_review workflow** — unfixed AI issues flagged instead of silently completed
+- **Two-tier architecture** — server runs `--auto-only`, reviews pulled locally for AI fixing
+
+### Infrastructure
+- **Domain**: lazaruspy.org (Cloudflare Registrar)
+- **Email**: admin@lazaruspy.org (Cloudflare Email Routing)
+- **Server**: Hetzner CX33, Helsinki — Ubuntu 24.04, Python 3.14.3
+- **Package index**: https://lazaruspy.org/simple/ (devpi + nginx + Let's Encrypt)
+- **systemd services**: devpi, lazarus-processor, lazarus-watchdog, lazarus-seed.timer
+
+### Fixed
+- `CompatIssue.line` → `CompatIssue.line_number` attribute reference in pipeline.py
+
+### Batch Results (Top 1,000 PyPI packages)
+- 922 already compatible (92.2%)
+- 35 auto-fixed (3.5%)
+- 43 failed (no sdist / C-extension build issues)
+
+---
+
+## [0.1.0] — 2026-02-18
+
+Initial development version. Core architecture and pipeline scaffolding.
+
+[1.0.0a1]: https://github.com/brianlross-eng/lazarus/compare/1256768...v1.0.0a1
+[0.1.0]: https://github.com/brianlross-eng/lazarus/commit/1256768
