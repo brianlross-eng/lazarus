@@ -1,0 +1,7 @@
+[project]
+name = "mypkg"
+version = "2.0.0.post314"
+
+[tool.setuptools_scm]
+local_version = "no-local-version"
+fallback_version = "0.0.0"

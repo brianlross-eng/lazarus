@@ -1,0 +1,4 @@
+[project]
+name = "mypkg"
+version = "3.3.2.post314"
+dynamic = ["description"]

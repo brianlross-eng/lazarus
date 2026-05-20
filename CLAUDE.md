@@ -143,17 +143,9 @@ Matching the auto-fixable analyzer checks above. The escape sequence fixer uses 
 - Glean: no new fix types needed — 88.8% failures are wheel-only, 10.7% build-dep errors
 - Running total: 367,222 queued (48.0% of PyPI's 765k)
 
-### Batch 9–20+: COMPLETE — **100% PyPI coverage reached 2026-05-18**
-- Running total: 786,885 queued = full PyPI index (200k seed found 0 new packages)
-- 693,724 complete / 93,161 failed (88.1% success rate, stable)
-- Glean profile unchanged since batch 8: 88% no_sdist, 11% build-dep, <1% other
-- OOM packages added: scgraph-data, terrajinja-imports-akamai (now 5 total in SKIP_OOM_PACKAGES)
-- Disk: root 35% (25G/75G), volume ~62% (300GB after resize 2026-05-13)
-- **Agent (Lazarus Project Manager)**: SSH key in authorized_keys, runbook at docs/iris-runbook.md
-  - NEVER run `python -m lazarus admin process` directly — use systemctl only
-  - SSH flags needed: `-o ConnectTimeout=30 -o ServerAliveInterval=10`
-- **Processor idle fix**: now loops internally, sleeps 300s when queue empty (no more churn)
-- **Ongoing**: weekly lazarus-seed.timer picks up newly published PyPI packages
+### Batch 9: ~18,753 packages — IN PROGRESS
+- Seeded 2026-03-24, ETA ~16-20h
+- Running total: 385,975 queued (50.5% of PyPI's 765k) — PASSED 50% TARGET
 
 ## Database
 - SQLite at `~/.lazarus/queue.db`
@@ -204,21 +196,21 @@ ssh -i ~/.ssh/id_ed25519 root@89.167.40.82
 - Install: `pip install --extra-index-url https://lazaruspy.org/simple/ <package>`
 
 ## What's Next (toward 1.0.0a2)
-- ~~Seed larger batch~~ Done: 786,885 packages = 100% of PyPI (2026-05-18)
+- ~~Seed larger batch~~ Done: 216k packages across 3 batches
 - ~~Add pkg_resources auto-fixer~~ Done: 8th fix type
 - ~~Cache cleanup~~ Done: sdists deleted after processing, prevents disk fill
 - ~~Add .tar.bz2/.tar.xz support~~ Done: recovered ~150 packages
 - ~~Symlink-safe extraction~~ Done: _safe_tar_filter skips symlinks
 - ~~ez_setup/distribute_setup removal~~ Done: strips obsolete bootstrap
 - ~~Version rewrite corruption fix~~ Done: lookbehind prevents string matches
-- ~~Upgrade server disk~~ Done: 300GB volume at /var/lib/devpi
-- ~~Expand pre-build setup.py patching~~ Done: 25 fix types
-- ~~Fix Aliyun mirror in server pip.conf~~ Done
-- ~~Fix deep seed OOM~~ Done: streaming parse
-- ~~Reduce processor idle churn~~ Done: internal loop, 300s sleep
-- **Soft launch** — blog post, HN/Reddit, landing page (100% coverage milestone)
+- ~~Upgrade server disk~~ Done: 80GB ext4 volume at /var/lib/devpi ($4/mo)
+- ~~Expand pre-build setup.py patching~~ Done: 22 fix types (was 6), targets Python 2 syntax, removed APIs, moved ABCs
+- ~~Fix Aliyun mirror in server pip.conf~~ Done: was causing setuptools constraint failures
+- ~~Fix deep seed OOM~~ Done: streaming PyPI index parse replaces regex-on-full-HTML
+- **Soft launch at 50% of PyPI** (~382k packages) — blog post, HN/Reddit, landing page
 - Implement `server/config.py` and `server/deploy.py` for reproducible deployment
 - Add `/status/<package>` API endpoint for verified compatibility checks
 - Set up monitoring/alerting for server health
+- Reduce processor idle churn (currently restarts every 60s even when queue empty)
 - Prepare landing page for lazaruspy.org with install instructions
-- **Revisit C-extension packages** (numpy, pandas, etc.) — analyze failure reasons, consider build agent with compilers or sourcing pre-built 3.14 wheels
+- **After first pass**: revisit C-extension packages (numpy, pandas, etc.) — analyze failure reasons, consider build agent with compilers or sourcing pre-built 3.14 wheels

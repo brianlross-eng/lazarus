@@ -1,0 +1,64 @@
+Processing [400] elastic-transport==9.2.1
+  Fetching elastic-transport==9.2.1...
+  Analyzing for 3.14 compatibility...
+  No issues found — already compatible
+  Success (none)
+
+Processing [398] pbr==7.0.3
+  Fetching pbr==7.0.3...
+  Analyzing for 3.14 compatibility...
+  Found 1 issue(s)
+  Auto-fixing 1 issue(s)...
+  Building distributions...
+  Success (auto)
+
+Processing [408] schema==0.7.8
+  Fetching schema==0.7.8...
+  Analyzing for 3.14 compatibility...
+C:\Users\gorig\.lazarus\work\lazarus_schema_thwzi8lf\source\schema-0.7.8\test_schema.py:1087: SyntaxWarning: "\/" is an invalid escape sequence. Such sequences will not work in the future. Did you mean "\\/"? A raw string is also an option.
+  "username": {"type": "string", "pattern": "^([a-zA-Z_][a-zA-Z0-9_]*)\/$"}
+  No issues found — already compatible
+  Success (none)
+
+Processing [403] html5lib==1.1
+  Fetching html5lib==1.1...
+  Analyzing for 3.14 compatibility...
+  Found 1 issue(s)
+  Auto-fixing 1 issue(s)...
+  Building distributions...
+  Build failed: sdist build failed:
+* Creating isolated environment: venv+pip...
+* Installing packages in isolated environment:
+  - setuptools >= 40.8.0
+* Getting build dependencies for sdist...
+Traceback (most recent call last):
+  File "C:\Users\gorig\AppData\Roaming\Python\Python314\site-packages\pyproject_hooks\_in_process\_in_process.py", line
+389, in <module>
+    main()
+    ~~~~^^
+  File "C:\Users\gorig\AppData\Roaming\Python\Python314\site-packages\pyproject_hooks\_in_process\_in_process.py", line
+373, in main
+    json_out["return_val"] = hook(**hook_input["kwargs"])
+                             ~~~~^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\gorig\AppData\Roaming\Python\Python314\site-packages\pyproject_hooks\_in_process\_in_process.py", line
+317, in get_requires_for_build_sdist
+    return hook(config_settings)
+  File "C:\Users\gorig\AppData\Local\Temp\build-env-r20hmu3e\Lib\site-packages\setuptools\build_meta.py", line 338, in
+get_requires_for_build_sdist
+    return self._get_build_requires(config_settings, requirements=[])
+           ~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\gorig\AppData\Local\Temp\build-env-r20hmu3e\Lib\site-packages\setuptools\build_meta.py", line 301, in
+_get_build_requires
+    self.run_setup()
+    ~~~~~~~~~~~~~~^^
+  File "C:\Users\gorig\AppData\Local\Temp\build-env-r20hmu3e\Lib\site-packages\setuptools\build_meta.py", line 520, in
+run_setup
+    super().run_setup(setup_script=setup_script)
+    ~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\gorig\AppData\Local\Temp\build-env-r20hmu3e\Lib\site-packages\setuptools\build_meta.py", line 317, in
+run_setup
+    exec(code, locals())
+    ~~~~^^^^^^^^^^^^^^^^
+  File "<string>", line 9, in <module>
+ModuleNotFoundError: No module named 'pkg_resources'
+ERROR Backend subprocess exited when trying to invoke get_requires_for_build_sdist

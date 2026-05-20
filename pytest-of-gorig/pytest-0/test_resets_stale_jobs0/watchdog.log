@@ -1,0 +1,4 @@
+2026-03-31 23:09:52 [WARNING] Stale job detected: dead-pkg==2.0.0 (id=1, last updated 2026-04-01T03:04:52.538250+00:00)
+2026-03-31 23:09:52 [INFO] Reset 1 stale job(s) back to pending
+2026-03-31 23:09:52 [INFO] Queue: pending=2 (total=2)
+2026-03-31 23:09:52 [INFO] Received signal 2, shutting down...

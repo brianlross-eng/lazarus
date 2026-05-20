@@ -1,0 +1,4 @@
+[project]
+name = "urwid"
+version = "3.0.5.post314"
+dynamic = ["classifiers", "dependencies"]
